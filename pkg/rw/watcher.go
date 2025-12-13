@@ -19,15 +19,27 @@ type Watcher struct {
 	gctx *gctx.GlobalContext
 	log  *zap.Logger
 
-	mu    sync.RWMutex
-	cache map[string]Relation
+	mu       sync.RWMutex
+	keyToDef map[string]string
+
+	onRelationUpdate func(relation Relation) error
+	onRelationDelete func(name string) error
 }
 
-func NewWatcher(rw *RisingWave, gctx *gctx.GlobalContext, log *zap.Logger) *Watcher {
+func NewWatcher(
+	rw *RisingWave,
+	gctx *gctx.GlobalContext,
+	log *zap.Logger,
+	onRelationUpdate func(relation Relation) error,
+	onRelationDelete func(name string) error,
+) *Watcher {
 	return &Watcher{
-		rw:   rw,
-		gctx: gctx,
-		log:  log.Named("watcher"),
+		rw:               rw,
+		gctx:             gctx,
+		log:              log.Named("watcher"),
+		onRelationUpdate: onRelationUpdate,
+		onRelationDelete: onRelationDelete,
+		keyToDef:         make(map[string]string),
 	}
 }
 
@@ -87,11 +99,14 @@ type Relation struct {
 }
 
 const getRelationsSQL = `SELECT
-	id,
-	name,
-	relation_type,
-	definition
-FROM rw_relations WHERE relation_type = 'table'
+	rw_relation.id,
+	rw_schema.name AS schema,
+	rw_relation.name,
+	rw_relation.relation_type,
+	rw_relation.definition
+FROM rw_relations 
+JOIN rw_schemas ON rw_schemas.id = rw_relations.schema_id
+WHERE relation_type = 'table'
 `
 
 const getColumnsSQL = `SELECT 
@@ -115,27 +130,46 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 		return errors.Wrap(err, "failed to fetch relations from RisingWave")
 	}
 	defer rows.Close()
-	cache := make(map[string]Relation)
+
+	updatedRelations := make(map[string]Relation)
+
+	newlyFetched := make(map[string]struct{})
 	for rows.Next() {
 		var (
 			relationID   int32
 			relationName string
 			relationType RelationType
 			definition   string
+			schema       string
 		)
 
-		if err := rows.Scan(&relationID, &relationName, &relationType, &definition); err != nil {
+		if err := rows.Scan(&relationID, &schema, &relationName, &relationType, &definition); err != nil {
 			return errors.Wrap(err, "failed to scan relation row")
 		}
 
 		relation := Relation{
 			ID:         relationID,
+			Schema:     schema,
 			Name:       relationName,
 			Type:       relationType,
 			Definition: definition,
 		}
 
-		cache[relationName] = relation
+		key := schema + "." + relationName
+
+		newlyFetched[key] = struct{}{}
+
+		key, exist := w.keyToDef[key]
+		if exist && w.keyToDef[key] == definition {
+			continue
+		}
+
+		updatedRelations[key] = relation
+		if !exist {
+			w.log.Info("new relation detected", zap.String("relation", relationName))
+		} else {
+			w.log.Info("relation definition changed", zap.String("relation", relationName))
+		}
 	}
 
 	if rows.Err() != nil {
@@ -165,24 +199,16 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 		}
 
 		key := schema + "." + relationName
-		relation, exists := cache[key]
-		if !exists {
-			w.log.Warn(
-				"relation not found for column during cache update, should be created during the update process",
-				zap.String("relation", key),
-				zap.String("column", columnName),
-			)
-			continue
+		relation, exists := updatedRelations[key]
+		if exists {
+			relation.Columns = append(relation.Columns, Column{
+				Name:         columnName,
+				Type:         columnType,
+				IsPrimaryKey: isPrimaryKey,
+				IsHidden:     isHidden,
+			})
+			updatedRelations[key] = relation
 		}
-
-		relation.Columns = append(relation.Columns, Column{
-			Name:         columnName,
-			Type:         columnType,
-			IsPrimaryKey: isPrimaryKey,
-			IsHidden:     isHidden,
-		})
-
-		cache[key] = relation
 	}
 
 	if rows.Err() != nil {
@@ -190,15 +216,19 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 	}
 
 	w.mu.Lock()
-	for k, v := range cache {
-		if _, exist := w.cache[k]; !exist {
-			w.log.Info("new relation detected", zap.String("relation", k))
-			w.cache[k] = v
-			continue
+	for k, v := range updatedRelations {
+		w.keyToDef[k] = v.Definition
+		if err := w.onRelationUpdate(v); err != nil {
+			w.log.Error("failed to handle relation update", zap.String("relation", k), zap.Error(err))
 		}
-		if w.cache[k].Definition != v.Definition {
-			w.log.Info("relation definition changed", zap.String("relation", k))
-			w.cache[k] = v
+	}
+	for k := range w.keyToDef {
+		if _, exist := newlyFetched[k]; !exist {
+			w.log.Info("relation deleted", zap.String("relation", k))
+			delete(w.keyToDef, k)
+			if err := w.onRelationDelete(k); err != nil {
+				w.log.Error("failed to handle relation delete", zap.String("relation", k), zap.Error(err))
+			}
 		}
 	}
 	w.mu.Unlock()

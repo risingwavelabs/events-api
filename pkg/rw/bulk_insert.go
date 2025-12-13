@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -88,7 +87,12 @@ type BulkInsertOperator struct {
 	bufSize int
 }
 
-func newBulkInsertOperator(ctx context.Context, table string, cols []string, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
+func newBulkInsertOperator(ctx context.Context, table string, columns []Column, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
+	cols := make([]string, 0, len(columns))
+	for _, c := range columns {
+		cols = append(cols, c.Name)
+	}
+
 	o := &BulkInsertOperator{
 		sql:     _buildPrepareSQL(table, cols),
 		nCol:    len(cols),
@@ -236,22 +240,24 @@ type BulkInsertManager struct {
 	globalCtx *gctx.GlobalContext
 	cm        *closer.CloserManager
 	log       *zap.Logger
+	rw        *RisingWave
 }
 
-func NewBulkInsertManager(globalCtx *gctx.GlobalContext, cm *closer.CloserManager, log *zap.Logger) (*BulkInsertManager, error) {
+func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, cm *closer.CloserManager, log *zap.Logger) (*BulkInsertManager, error) {
 	m := &BulkInsertManager{
 		globalCtx: globalCtx,
 		cm:        cm,
 		log:       log.Named("bim"),
+		rw:        rw,
 	}
 
 	return m, nil
 }
 
-func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []string, pool *pgxpool.Pool, bufSize int) (*BulkInsertOperator, error) {
+func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column, bufSize int) (*BulkInsertOperator, error) {
 	ctx := b.globalCtx.Context()
 
-	op := newBulkInsertOperator(ctx, table, cols, pool, bufSize, b.log)
+	op := newBulkInsertOperator(ctx, table, cols, b.rw.pool, bufSize, b.log)
 
 	b.cm.Register(func(ctx context.Context) error {
 		op.Close()

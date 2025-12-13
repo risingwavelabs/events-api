@@ -23,6 +23,7 @@ func InitApp() (*app.App, error) {
 		gctx.New,
 		rw.NewRisingWave,
 		rw.NewBulkInsertManager,
+		rw.NewEventService,
 		closer.NewCloserManager,
 	)
 	return nil, nil

@@ -14,10 +14,17 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/oapi-codegen/runtime"
 )
 
 // IngestEventJSONBody defines parameters for IngestEvent.
 type IngestEventJSONBody = map[string]interface{}
+
+// IngestEventParams defines parameters for IngestEvent.
+type IngestEventParams struct {
+	// Table Name of the table to ingest the event into
+	Table string `form:"table" json:"table"`
+}
 
 // IngestEventJSONRequestBody defines body for IngestEvent for application/json ContentType.
 type IngestEventJSONRequestBody = IngestEventJSONBody
@@ -96,13 +103,13 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 	// IngestEventWithBody request with any body
-	IngestEventWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	IngestEventWithBody(ctx context.Context, params *IngestEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	IngestEvent(ctx context.Context, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	IngestEvent(ctx context.Context, params *IngestEventParams, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-func (c *Client) IngestEventWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewIngestEventRequestWithBody(c.Server, contentType, body)
+func (c *Client) IngestEventWithBody(ctx context.Context, params *IngestEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewIngestEventRequestWithBody(c.Server, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +120,8 @@ func (c *Client) IngestEventWithBody(ctx context.Context, contentType string, bo
 	return c.Client.Do(req)
 }
 
-func (c *Client) IngestEvent(ctx context.Context, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewIngestEventRequest(c.Server, body)
+func (c *Client) IngestEvent(ctx context.Context, params *IngestEventParams, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewIngestEventRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -126,18 +133,18 @@ func (c *Client) IngestEvent(ctx context.Context, body IngestEventJSONRequestBod
 }
 
 // NewIngestEventRequest calls the generic IngestEvent builder with application/json body
-func NewIngestEventRequest(server string, body IngestEventJSONRequestBody) (*http.Request, error) {
+func NewIngestEventRequest(server string, params *IngestEventParams, body IngestEventJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewIngestEventRequestWithBody(server, "application/json", bodyReader)
+	return NewIngestEventRequestWithBody(server, params, "application/json", bodyReader)
 }
 
 // NewIngestEventRequestWithBody generates requests for IngestEvent with any type of body
-func NewIngestEventRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+func NewIngestEventRequestWithBody(server string, params *IngestEventParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -153,6 +160,24 @@ func NewIngestEventRequestWithBody(server string, contentType string, body io.Re
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "table", runtime.ParamLocationQuery, params.Table); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("POST", queryURL.String(), body)
@@ -209,9 +234,9 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 	// IngestEventWithBodyWithResponse request with any body
-	IngestEventWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*IngestEventResponse, error)
+	IngestEventWithBodyWithResponse(ctx context.Context, params *IngestEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*IngestEventResponse, error)
 
-	IngestEventWithResponse(ctx context.Context, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*IngestEventResponse, error)
+	IngestEventWithResponse(ctx context.Context, params *IngestEventParams, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*IngestEventResponse, error)
 }
 
 type IngestEventResponse struct {
@@ -236,16 +261,16 @@ func (r IngestEventResponse) StatusCode() int {
 }
 
 // IngestEventWithBodyWithResponse request with arbitrary body returning *IngestEventResponse
-func (c *ClientWithResponses) IngestEventWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*IngestEventResponse, error) {
-	rsp, err := c.IngestEventWithBody(ctx, contentType, body, reqEditors...)
+func (c *ClientWithResponses) IngestEventWithBodyWithResponse(ctx context.Context, params *IngestEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*IngestEventResponse, error) {
+	rsp, err := c.IngestEventWithBody(ctx, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseIngestEventResponse(rsp)
 }
 
-func (c *ClientWithResponses) IngestEventWithResponse(ctx context.Context, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*IngestEventResponse, error) {
-	rsp, err := c.IngestEvent(ctx, body, reqEditors...)
+func (c *ClientWithResponses) IngestEventWithResponse(ctx context.Context, params *IngestEventParams, body IngestEventJSONRequestBody, reqEditors ...RequestEditorFn) (*IngestEventResponse, error) {
+	rsp, err := c.IngestEvent(ctx, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +297,7 @@ func ParseIngestEventResponse(rsp *http.Response) (*IngestEventResponse, error) 
 type ServerInterface interface {
 	// Ingest a new event
 	// (POST /events)
-	IngestEvent(c *fiber.Ctx) error
+	IngestEvent(c *fiber.Ctx, params IngestEventParams) error
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -285,7 +310,33 @@ type MiddlewareFunc fiber.Handler
 // IngestEvent operation middleware
 func (siw *ServerInterfaceWrapper) IngestEvent(c *fiber.Ctx) error {
 
-	return siw.Handler.IngestEvent(c)
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params IngestEventParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "table" -------------
+
+	if paramValue := c.Query("table"); paramValue != "" {
+
+	} else {
+		err = fmt.Errorf("Query argument table is required, but not found")
+		c.Status(fiber.StatusBadRequest).JSON(err)
+		return err
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "table", query, &params.Table)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter table: %w", err).Error())
+	}
+
+	return siw.Handler.IngestEvent(c, params)
 }
 
 // FiberServerOptions provides options for the Fiber server.

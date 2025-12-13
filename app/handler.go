@@ -1,6 +1,8 @@
 package app
 
 import (
+	"encoding/json"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/risingwavelabs/eventapi/app/zgen/apigen"
 	"github.com/risingwavelabs/eventapi/pkg/rw"
@@ -8,14 +10,19 @@ import (
 
 type Handler struct {
 	rw *rw.RisingWave
+	es *rw.EventService
 }
 
-func NewHandler(rw *rw.RisingWave) apigen.ServerInterface {
+func NewHandler(rw *rw.RisingWave, es *rw.EventService) apigen.ServerInterface {
 	return &Handler{
 		rw: rw,
+		es: es,
 	}
 }
 
-func (h *Handler) IngestEvent(c *fiber.Ctx) error {
-	return nil
+func (h *Handler) IngestEvent(c *fiber.Ctx, params apigen.IngestEventParams) error {
+	b := json.RawMessage{}
+	copy(b, c.Body())
+
+	return h.es.IngestEvent(c.Context(), params.Table, b)
 }

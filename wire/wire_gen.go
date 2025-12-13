@@ -28,15 +28,16 @@ func InitApp() (*app.App, error) {
 	}
 	globalContext := gctx.New(zapLogger)
 	closerManager := closer.NewCloserManager(zapLogger)
-	bulkInsertManager, err := rw.NewBulkInsertManager(globalContext, closerManager, zapLogger)
+	risingWave, err := rw.NewRisingWave(configConfig, globalContext, closerManager)
 	if err != nil {
 		return nil, err
 	}
-	risingWave, err := rw.NewRisingWave(configConfig, globalContext, bulkInsertManager, closerManager)
+	bulkInsertManager, err := rw.NewBulkInsertManager(globalContext, risingWave, closerManager, zapLogger)
 	if err != nil {
 		return nil, err
 	}
-	serverInterface := app.NewHandler(risingWave)
+	eventService := rw.NewEventService(globalContext, risingWave, zapLogger, bulkInsertManager)
+	serverInterface := app.NewHandler(risingWave, eventService)
 	appApp := app.NewApp(configConfig, globalContext, zapLogger, serverInterface)
 	return appApp, nil
 }

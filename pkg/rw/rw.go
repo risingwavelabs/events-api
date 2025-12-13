@@ -35,7 +35,7 @@ func parse(cfg *config.Rw) string {
 	)
 }
 
-func NewRisingWave(cfg *config.Config, globalCtx *gctx.GlobalContext, bm *BulkInsertManager, cm *closer.CloserManager) (*RisingWave, error) {
+func NewRisingWave(cfg *config.Config, globalCtx *gctx.GlobalContext, cm *closer.CloserManager) (*RisingWave, error) {
 	if cfg.Rw == nil {
 		return nil, errors.New("risingwave config is nil")
 	}
