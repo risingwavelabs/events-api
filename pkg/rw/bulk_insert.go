@@ -87,12 +87,7 @@ type BulkInsertOperator struct {
 	bufSize int
 }
 
-func newBulkInsertOperator(ctx context.Context, table string, columns []Column, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
-	cols := make([]string, 0, len(columns))
-	for _, c := range columns {
-		cols = append(cols, c.Name)
-	}
-
+func newBulkInsertOperator(ctx context.Context, table string, cols []string, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
 	o := &BulkInsertOperator{
 		sql:     _buildPrepareSQL(table, cols),
 		nCol:    len(cols),
@@ -254,7 +249,9 @@ func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, cm *clo
 	return m, nil
 }
 
-func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column, bufSize int) (*BulkInsertOperator, error) {
+func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []string, bufSize int) (*BulkInsertOperator, error) {
+	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
+
 	ctx := b.globalCtx.Context()
 
 	op := newBulkInsertOperator(ctx, table, cols, b.rw.pool, bufSize, b.log)

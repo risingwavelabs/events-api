@@ -16,7 +16,7 @@ paths:
       operationId: ingestEvent
       parameters:
         - in: query
-          name: table
+          name: name
           schema:
             type: string
           required: true

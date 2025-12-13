@@ -22,8 +22,8 @@ type IngestEventJSONBody = map[string]interface{}
 
 // IngestEventParams defines parameters for IngestEvent.
 type IngestEventParams struct {
-	// Table Name of the table to ingest the event into
-	Table string `form:"table" json:"table"`
+	// Name Name of the table to ingest the event into
+	Name string `form:"name" json:"name"`
 }
 
 // IngestEventJSONRequestBody defines body for IngestEvent for application/json ContentType.
@@ -165,7 +165,7 @@ func NewIngestEventRequestWithBody(server string, params *IngestEventParams, con
 	if params != nil {
 		queryValues := queryURL.Query()
 
-		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "table", runtime.ParamLocationQuery, params.Table); err != nil {
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "name", runtime.ParamLocationQuery, params.Name); err != nil {
 			return nil, err
 		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 			return nil, err
@@ -321,19 +321,19 @@ func (siw *ServerInterfaceWrapper) IngestEvent(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
 	}
 
-	// ------------- Required query parameter "table" -------------
+	// ------------- Required query parameter "name" -------------
 
-	if paramValue := c.Query("table"); paramValue != "" {
+	if paramValue := c.Query("name"); paramValue != "" {
 
 	} else {
-		err = fmt.Errorf("Query argument table is required, but not found")
+		err = fmt.Errorf("Query argument name is required, but not found")
 		c.Status(fiber.StatusBadRequest).JSON(err)
 		return err
 	}
 
-	err = runtime.BindQueryParameter("form", true, true, "table", query, &params.Table)
+	err = runtime.BindQueryParameter("form", true, true, "name", query, &params.Name)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter table: %w", err).Error())
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter name: %w", err).Error())
 	}
 
 	return siw.Handler.IngestEvent(c, params)

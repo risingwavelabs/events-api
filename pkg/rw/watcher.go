@@ -19,8 +19,8 @@ type Watcher struct {
 	gctx *gctx.GlobalContext
 	log  *zap.Logger
 
-	mu       sync.RWMutex
-	keyToDef map[string]string
+	mu            sync.RWMutex
+	lastKeyToDefs map[string]string
 
 	onRelationUpdate func(relation Relation) error
 	onRelationDelete func(name string) error
@@ -39,13 +39,15 @@ func NewWatcher(
 		log:              log.Named("watcher"),
 		onRelationUpdate: onRelationUpdate,
 		onRelationDelete: onRelationDelete,
-		keyToDef:         make(map[string]string),
+		lastKeyToDefs:    make(map[string]string),
 	}
 }
 
 func (w *Watcher) Start() {
 	ticker := time.NewTicker(watcherPollInterval)
 	defer ticker.Stop()
+
+	w.log.Info("starting RisingWave watcher")
 
 	for {
 		select {
@@ -55,12 +57,9 @@ func (w *Watcher) Start() {
 			ctx, cancel := context.WithTimeout(w.gctx.Context(), 5*time.Second)
 			defer cancel()
 
-			rows, err := w.rw.pool.Query(ctx, "SELECT 1")
-			if err != nil {
-				w.log.Error("failed to fetch from RisingWave", zap.Error(err))
-				continue
+			if err := w.UpdateCache(ctx); err != nil {
+				w.log.Error("failed to update cache", zap.Error(err))
 			}
-			defer rows.Close()
 		}
 	}
 }
@@ -99,11 +98,11 @@ type Relation struct {
 }
 
 const getRelationsSQL = `SELECT
-	rw_relation.id,
-	rw_schema.name AS schema,
-	rw_relation.name,
-	rw_relation.relation_type,
-	rw_relation.definition
+	rw_relations.id,
+	rw_schemas.name AS schema,
+	rw_relations.name,
+	rw_relations.relation_type,
+	rw_relations.definition
 FROM rw_relations 
 JOIN rw_schemas ON rw_schemas.id = rw_relations.schema_id
 WHERE relation_type = 'table'
@@ -159,8 +158,8 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 
 		newlyFetched[key] = struct{}{}
 
-		key, exist := w.keyToDef[key]
-		if exist && w.keyToDef[key] == definition {
+		_, exist := w.lastKeyToDefs[key]
+		if exist && w.lastKeyToDefs[key] == definition {
 			continue
 		}
 
@@ -217,15 +216,15 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 
 	w.mu.Lock()
 	for k, v := range updatedRelations {
-		w.keyToDef[k] = v.Definition
+		w.lastKeyToDefs[k] = v.Definition
 		if err := w.onRelationUpdate(v); err != nil {
 			w.log.Error("failed to handle relation update", zap.String("relation", k), zap.Error(err))
 		}
 	}
-	for k := range w.keyToDef {
+	for k := range w.lastKeyToDefs {
 		if _, exist := newlyFetched[k]; !exist {
 			w.log.Info("relation deleted", zap.String("relation", k))
-			delete(w.keyToDef, k)
+			delete(w.lastKeyToDefs, k)
 			if err := w.onRelationDelete(k); err != nil {
 				w.log.Error("failed to handle relation delete", zap.String("relation", k), zap.Error(err))
 			}

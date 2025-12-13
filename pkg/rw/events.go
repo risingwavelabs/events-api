@@ -48,21 +48,37 @@ type EventHandler struct {
 }
 
 func NewEventHandler(table string, cols []Column, bim *BulkInsertManager) (*EventHandler, error) {
-	bio, err := bim.NewBulkInsertOperator(table, cols, 1000) // TODO: dynamic buffer size
+	filteredCols := []Column{}
+	for _, c := range cols {
+		if c.Name == "_row_id" {
+			continue
+		}
+		if strings.HasPrefix(c.Name, "_rw") {
+			continue
+		}
+		filteredCols = append(filteredCols, c)
+	}
+
+	colNames := make([]string, 0, len(filteredCols))
+	for _, c := range filteredCols {
+		colNames = append(colNames, c.Name)
+	}
+
+	bio, err := bim.NewBulkInsertOperator(table, colNames, 1000) // TODO: dynamic buffer size
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create bulk insert operator")
 	}
 
 	return &EventHandler{
 		bio:    bio,
-		parser: NewEventParser(cols),
+		parser: NewEventParser(filteredCols),
 	}, nil
 }
 
 func (i *EventHandler) Ingest(ctx context.Context, raw json.RawMessage) error {
 	args, err := i.parser.Parse(raw)
 	if err != nil {
-		return errors.Wrap(err, "failed to parse event")
+		return errors.Wrapf(err, "failed to parse event: %s", string(raw))
 	}
 
 	if err := i.bio.Insert(ctx, args...); err != nil {
@@ -77,12 +93,14 @@ type EventService struct {
 	mu       sync.RWMutex
 
 	bim *BulkInsertManager
+	log *zap.Logger
 }
 
 func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager) *EventService {
 	es := &EventService{
 		handlers: make(map[string]*EventHandler),
 		bim:      bim,
+		log:      log.Named("event_service"),
 	}
 
 	watcher := NewWatcher(rw, gctx, log, es.onRelatioonUpdate, es.onRelationDelete)
@@ -115,6 +133,9 @@ func (s *EventService) IngestEvent(ctx context.Context, name string, raw json.Ra
 func (s *EventService) onRelatioonUpdate(relation Relation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.log.Info("create event handler for relation", zap.Any("relation", relation))
+
 	handler, err := NewEventHandler(relation.Schema+"."+relation.Name, relation.Columns, s.bim)
 	if err != nil {
 		return errors.Wrap(err, "failed to create event handler")
