@@ -1,0 +1,19 @@
+metricsStores:
+  - name: Default Prometheus
+    spec:
+      type: prometheus
+      prometheus:
+        endpoint: http://prometheus:9500
+clusters:
+  - name: Default Local Cluster
+    version: v2.5.1
+    connections:
+      sqlEndpoint: "rw-svc:4566"
+      metaRpcEndpoint: "http://rw-svc:5690"
+      metaHttpEndpoint: "http://rw-svc:5691"
+    metricsStore: Default Prometheus
+databases:
+  - name: rw
+    cluster: Default Local Cluster
+    username: root
+    database: dev

@@ -1,0 +1,60 @@
+services:
+  console:
+    image: risingwavelabs/risingwave-console:v0.5.1-pgbundle
+    ports:
+      - "8020:8020"
+    environment:
+      RCONSOLE_ROOT_PASSWORD: 'root'
+      RCONSOLE_INIT: /app/init.yaml
+    volumes:
+      - test-risingwave-console-data:/risingwave-console-data
+      - ./dev/init.yaml:/app/init.yaml
+      - test-db-data:/var/lib/postgresql/data
+
+  rw-svc:
+    image: risingwavelabs/risingwave:v2.6.2
+    ports:
+      - 4566:4566
+      - 5690:5690
+      - 5691:5691
+      - 1250:1250
+    volumes:
+      - test-rw-meta-store:/root/meta
+      - test-rw-data-store:/root/state_store
+    command: "standalone --meta-opts=\" \
+                    --listen-addr 0.0.0.0:5690 \
+                    --advertise-addr rw-svc:5690 \
+                    --dashboard-host 0.0.0.0:5691 \
+                    --prometheus-host 0.0.0.0:1250 \
+                    --backend sqlite  \
+                    --sql-endpoint /root/meta/single_node.db \
+                    --state-store hummock+fs:///root/state_store \
+                    --data-directory hummock_001\" \
+                 --compute-opts=\" \
+                    --listen-addr 0.0.0.0:5688 \
+                    --prometheus-listener-addr 0.0.0.0:1250 \
+                    --advertise-addr rw-svc:5688 \
+                    --async-stack-trace verbose \
+                    --parallelism 4 \
+                    --total-memory-bytes 2147483648 \
+                    --role both \
+                    --meta-address http://0.0.0.0:5690\" \
+                 --frontend-opts=\" \
+                   --listen-addr 0.0.0.0:4566 \
+                   --advertise-addr rw-svc:4566 \
+                   --prometheus-listener-addr 0.0.0.0:1250 \
+                   --health-check-listener-addr 0.0.0.0:6786 \
+                   --meta-addr http://0.0.0.0:5690 \
+                   --frontend-total-memory-bytes=500000000\" \
+                 --compactor-opts=\" \
+                   --listen-addr 0.0.0.0:6660 \
+                   --prometheus-listener-addr 0.0.0.0:1250 \
+                   --advertise-addr rw-svc:6660 \
+                   --meta-address http://0.0.0.0:5690 \
+                   --compactor-total-memory-bytes=1000000000\""
+
+volumes:
+  test-risingwave-console-data:
+  test-db-data:
+  test-rw-meta-store:
+  test-rw-data-store:
