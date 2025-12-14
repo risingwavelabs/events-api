@@ -19,5 +19,12 @@ func NewHandler(rw *rw.RisingWave, es *rw.EventService) apigen.ServerInterface {
 }
 
 func (h *Handler) IngestEvent(c *fiber.Ctx, params apigen.IngestEventParams) error {
-	return h.es.IngestEvent(c.Context(), params.Name, c.Body())
+	if err := h.es.IngestEvent(c.Context(), params.Name, c.Body()); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusOK)
+}
+
+func (h *Handler) HealthCheck(c *fiber.Ctx) error {
+	return c.SendStatus(fiber.StatusOK)
 }

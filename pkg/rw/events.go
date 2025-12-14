@@ -64,7 +64,7 @@ func NewEventHandler(table string, cols []Column, bim *BulkInsertManager) (*Even
 		colNames = append(colNames, c.Name)
 	}
 
-	bio, err := bim.NewBulkInsertOperator(table, colNames, 1000) // TODO: dynamic buffer size
+	bio, err := bim.NewBulkInsertOperator(table, colNames, DefaultBIOSize) // TODO: dynamic buffer size
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create bulk insert operator")
 	}
@@ -91,12 +91,13 @@ func (i *EventHandler) Ingest(ctx context.Context, raw json.RawMessage) error {
 type EventService struct {
 	handlers map[string]*EventHandler
 	mu       sync.RWMutex
+	ready    bool
 
 	bim *BulkInsertManager
 	log *zap.Logger
 }
 
-func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager) *EventService {
+func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager) (*EventService, error) {
 	es := &EventService{
 		handlers: make(map[string]*EventHandler),
 		bim:      bim,
@@ -104,9 +105,12 @@ func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, 
 	}
 
 	watcher := NewWatcher(rw, gctx, log, es.onRelatioonUpdate, es.onRelationDelete)
+	if err := watcher.UpdateCache(gctx.Context()); err != nil { // initial cache update
+		return nil, errors.Wrap(err, "failed to perform initial cache update")
+	}
 	go watcher.Start()
 
-	return es
+	return es, nil
 }
 
 func (s *EventService) IngestEvent(ctx context.Context, name string, raw json.RawMessage) error {

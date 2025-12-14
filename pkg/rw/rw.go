@@ -11,6 +11,7 @@ import (
 	"github.com/risingwavelabs/eventapi/pkg/closer"
 	"github.com/risingwavelabs/eventapi/pkg/config"
 	"github.com/risingwavelabs/eventapi/pkg/gctx"
+	"go.uber.org/zap"
 )
 
 var ErrQueryFailed = errors.New("query failed")
@@ -35,12 +36,12 @@ func parse(cfg *config.Rw) string {
 	)
 }
 
-func NewRisingWave(cfg *config.Config, globalCtx *gctx.GlobalContext, cm *closer.CloserManager) (*RisingWave, error) {
+func NewRisingWave(cfg *config.Config, globalCtx *gctx.GlobalContext, cm *closer.CloserManager, log *zap.Logger) (*RisingWave, error) {
 	if cfg.Rw == nil {
 		return nil, errors.New("risingwave config is nil")
 	}
 
-	dialCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	dialCtx, cancel := context.WithTimeout(globalCtx.Context(), 15*time.Second)
 	defer cancel()
 
 	dsn := parse(cfg.Rw)
@@ -59,9 +60,20 @@ func NewRisingWave(cfg *config.Config, globalCtx *gctx.GlobalContext, cm *closer
 		return nil, err
 	}
 
-	if err := pool.Ping(dialCtx); err != nil {
+	ready := false
+	for i := 0; i < 10; i++ {
+		err = pool.Ping(dialCtx)
+		if err == nil {
+			ready = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+		log.Error("failed to connect to risingwave, retrying...", zap.Error(err))
+	}
+
+	if !ready {
 		pool.Close()
-		return nil, err
+		return nil, errors.Wrap(err, "failed to connect to risingwave")
 	}
 
 	rw := &RisingWave{
@@ -76,4 +88,8 @@ func NewRisingWave(cfg *config.Config, globalCtx *gctx.GlobalContext, cm *closer
 	})
 
 	return rw, nil
+}
+
+func (rw *RisingWave) Pool() *pgxpool.Pool {
+	return rw.pool
 }

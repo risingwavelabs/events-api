@@ -20,6 +20,11 @@ type Rw struct {
 	SSLMode string `yaml:"sslmode"`
 }
 
+type Debug struct {
+	Port   int  `yaml:"port"`
+	Enable bool `yaml:"enable"`
+}
+
 type Config struct {
 	// (Optional) The host of the anclax server.
 	Host string `yaml:"host"`
@@ -29,6 +34,8 @@ type Config struct {
 
 	// The risingwave configuration
 	Rw *Rw `yaml:"rw"`
+
+	Debug Debug `yaml:"debug"`
 }
 
 const (

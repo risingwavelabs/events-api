@@ -30,3 +30,11 @@ paths:
       responses:
         '201':
           description: Event ingested successfully
+
+  /healthz:
+    get:
+      summary: Health check endpoint
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy

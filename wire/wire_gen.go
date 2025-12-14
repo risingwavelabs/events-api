@@ -28,7 +28,7 @@ func InitApp() (*app.App, error) {
 	}
 	globalContext := gctx.New(zapLogger)
 	closerManager := closer.NewCloserManager(zapLogger)
-	risingWave, err := rw.NewRisingWave(configConfig, globalContext, closerManager)
+	risingWave, err := rw.NewRisingWave(configConfig, globalContext, closerManager, zapLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,10 @@ func InitApp() (*app.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventService := rw.NewEventService(globalContext, risingWave, zapLogger, bulkInsertManager)
+	eventService, err := rw.NewEventService(globalContext, risingWave, zapLogger, bulkInsertManager)
+	if err != nil {
+		return nil, err
+	}
 	serverInterface := app.NewHandler(risingWave, eventService)
 	appApp := app.NewApp(configConfig, globalContext, zapLogger, serverInterface)
 	return appApp, nil

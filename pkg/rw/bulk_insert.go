@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,7 +17,8 @@ import (
 )
 
 const (
-	FlushInterval = 100 * time.Millisecond
+	FlushInterval  = 500 * time.Millisecond
+	DefaultBIOSize = 5000
 )
 
 type Connection interface {
@@ -74,14 +76,23 @@ var BulkInsertBackpressureHit = promauto.NewCounter(
 	},
 )
 
+type Item struct {
+	args []any
+	c    chan error
+}
+
 type BulkInsertOperator struct {
 	log   *zap.Logger
 	sql   string
 	table string
 	nCol  int
 
-	c    chan []any
-	buf  [][]any
+	seq       int64
+	latestSeq int64
+	itemPool  sync.Pool
+
+	c    chan *Item
+	buf  []*Item
 	conn Connection
 
 	bufSize int
@@ -91,14 +102,21 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []string, con
 	o := &BulkInsertOperator{
 		sql:     _buildPrepareSQL(table, cols),
 		nCol:    len(cols),
-		buf:     make([][]any, 0, bufSize),
+		buf:     make([]*Item, 0, bufSize),
 		conn:    conn,
-		c:       make(chan []any, bufSize),
+		c:       make(chan *Item, bufSize),
 		bufSize: bufSize,
 		table:   table,
 		log: log.Named("bulk_insert").With(
 			zap.String("table", table),
 		),
+		itemPool: sync.Pool{
+			New: func() any {
+				return &Item{
+					c: make(chan error, 1),
+				}
+			},
+		},
 	}
 
 	o.run(ctx)
@@ -111,13 +129,29 @@ func (o *BulkInsertOperator) Close() {
 }
 
 func (o *BulkInsertOperator) Insert(ctx context.Context, args ...any) error {
+	item := o.itemPool.Get().(*Item)
+	defer o.itemPool.Put(item)
+
+	item.args = args
+
 	select {
-	case o.c <- args:
+	case <-item.c: // drain previous error if any
+	default:
+	}
+
+	select {
+	case o.c <- item:
 	default:
 		BulkInsertBackpressureHit.Inc()
 		return ErrInsertBackpressure
 	}
-	return nil
+
+	select {
+	case err := <-item.c:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (o *BulkInsertOperator) run(ctx context.Context) {
@@ -161,6 +195,8 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 		return
 	}
 	sql, args := _buildInsertStatement(o.sql, o.buf, o.nCol)
+	items := make([]*Item, len(o.buf))
+	copy(items, o.buf)
 	o.buf = o.buf[:0]
 	go func() {
 		FlushGoroutine.Inc()
@@ -169,32 +205,35 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 		c, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		if _, err := o.conn.Exec(c, sql, args...); err != nil {
-			FlushErrCount.Inc()
+		var err error
+		if _, err = o.conn.Exec(c, sql, args...); err != nil {
 			o.log.Error("failed to run exec in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
 		}
-		if _, err := o.conn.Exec(c, "FLUSH"); err != nil {
-			FlushErrCount.Inc()
+		if _, err = o.conn.Exec(c, "FLUSH"); err != nil {
 			o.log.Error("failed to run flush in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
 		}
 
-		FlushSuccessCount.Inc()
+		o.onFlushDone(err, items)
 	}()
 }
 
-func BuildBulkInsertStatement(table string, cols []string, values [][]any) (string, []any) {
-	return _buildInsertStatement(
-		_buildPrepareSQL(table, cols),
-		values,
-		len(cols),
-	)
+func (o *BulkInsertOperator) onFlushDone(err error, items []*Item) {
+	for _, item := range items {
+		item.c <- err
+	}
+	if err != nil {
+		FlushErrCount.Inc()
+	} else {
+		FlushSuccessCount.Inc()
+	}
+	o.log.Debug("bulk insert flush done", zap.Int("n_items", len(items)), zap.Error(err))
 }
 
 func _buildPrepareSQL(table string, cols []string) string {
 	return "INSERT INTO " + table + " (" + strings.Join(cols, ", ") + ") VALUES "
 }
 
-func _buildInsertStatement(sql string, values [][]any, nCols int) (string, []any) {
+func _buildInsertStatement(sql string, values []*Item, nCols int) (string, []any) {
 	n := len(values) * nCols
 	var pos int = 0
 	var sb strings.Builder
@@ -218,8 +257,8 @@ func _buildInsertStatement(sql string, values [][]any, nCols int) (string, []any
 
 	var args = make([]any, 0, n)
 	for _, row := range values {
-		rowCopy := make([]any, len(row))
-		copy(rowCopy, row)
+		rowCopy := make([]any, len(row.args))
+		copy(rowCopy, row.args)
 		args = append(args, rowCopy...)
 	}
 
