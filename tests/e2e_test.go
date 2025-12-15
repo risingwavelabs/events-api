@@ -13,7 +13,9 @@ import (
 
 func TestIngestEvents(t *testing.T) {
 	var (
+		// number of requests
 		N = 1000
+		// number of lines per request
 		L = 1000
 	)
 
