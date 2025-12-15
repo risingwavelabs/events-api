@@ -77,7 +77,7 @@ var BulkInsertBackpressureHit = promauto.NewCounter(
 )
 
 type Item struct {
-	args []any
+	rows [][]any
 	c    chan error
 }
 
@@ -85,23 +85,24 @@ type BulkInsertOperator struct {
 	log   *zap.Logger
 	sql   string
 	table string
-	nCol  int
+	cols  []Column
 
 	seq       int64
 	latestSeq int64
 	itemPool  sync.Pool
 
-	c    chan *Item
-	buf  []*Item
-	conn Connection
+	c      chan *Item
+	buf    []*Item
+	rowCnt int
+	conn   Connection
 
 	bufSize int
 }
 
-func newBulkInsertOperator(ctx context.Context, table string, cols []string, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
+func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
 	o := &BulkInsertOperator{
 		sql:     _buildPrepareSQL(table, cols),
-		nCol:    len(cols),
+		cols:    cols,
 		buf:     make([]*Item, 0, bufSize),
 		conn:    conn,
 		c:       make(chan *Item, bufSize),
@@ -128,11 +129,11 @@ func (o *BulkInsertOperator) Close() {
 	close(o.c)
 }
 
-func (o *BulkInsertOperator) Insert(ctx context.Context, args ...any) error {
+func (o *BulkInsertOperator) Insert(ctx context.Context, rows [][]any) error {
 	item := o.itemPool.Get().(*Item)
 	defer o.itemPool.Put(item)
 
-	item.args = args
+	item.rows = rows
 
 	select {
 	case <-item.c: // drain previous error if any
@@ -180,7 +181,8 @@ func (o *BulkInsertOperator) run(ctx context.Context) {
 					return
 				}
 				o.buf = append(o.buf, args)
-				if len(o.buf) == o.bufSize {
+				o.rowCnt += len(args.rows)
+				if o.rowCnt >= o.bufSize {
 					BulkInsertFlushBySize.Add(1)
 					o.flush(ctx)
 				}
@@ -194,10 +196,11 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 	if len(o.buf) == 0 {
 		return
 	}
-	sql, args := _buildInsertStatement(o.sql, o.buf, o.nCol)
+	sql, args := _buildInsertStatement(o.sql, o.buf, o.cols)
 	items := make([]*Item, len(o.buf))
 	copy(items, o.buf)
 	o.buf = o.buf[:0]
+	o.rowCnt = 0
 	go func() {
 		FlushGoroutine.Inc()
 		defer FlushGoroutine.Dec()
@@ -229,37 +232,48 @@ func (o *BulkInsertOperator) onFlushDone(err error, items []*Item) {
 	o.log.Debug("bulk insert flush done", zap.Int("n_items", len(items)), zap.Error(err))
 }
 
-func _buildPrepareSQL(table string, cols []string) string {
-	return "INSERT INTO " + table + " (" + strings.Join(cols, ", ") + ") VALUES "
+func _buildPrepareSQL(table string, cols []Column) string {
+	names := make([]string, 0, len(cols))
+	for _, c := range cols {
+		names = append(names, c.Name)
+	}
+	return "INSERT INTO " + table + " (" + strings.Join(names, ", ") + ") VALUES "
 }
 
-func _buildInsertStatement(sql string, values []*Item, nCols int) (string, []any) {
-	n := len(values) * nCols
+func _buildInsertStatement(sql string, items []*Item, cols []Column) (string, []any) {
+	n := 0
+	for _, item := range items {
+		n += len(item.rows) * len(cols)
+	}
 	var pos int = 0
 	var sb strings.Builder
 	sb.WriteString(sql)
-	for pos < n {
-		sb.WriteString("(")
-		for i := 1; i <= nCols; i++ {
-			sb.WriteString("$")
-			sb.WriteString(fmt.Sprint(pos + 1))
-			pos++
-			if i != nCols {
-				sb.WriteString(", ")
-			} else {
-				sb.WriteString(")")
+	for i, item := range items {
+		for j := range item.rows {
+			sb.WriteString("(")
+			for k := range cols {
+				sb.WriteString("$")
+				sb.WriteString(fmt.Sprint(pos + 1))
+				pos++
+				if k != len(cols)-1 {
+					sb.WriteString(", ")
+				} else {
+					sb.WriteString(")")
+				}
 			}
-		}
-		if pos < n {
-			sb.WriteString(", ")
+			if j != len(item.rows)-1 || i != len(items)-1 {
+				sb.WriteString(", ")
+			}
 		}
 	}
 
 	var args = make([]any, 0, n)
-	for _, row := range values {
-		rowCopy := make([]any, len(row.args))
-		copy(rowCopy, row.args)
-		args = append(args, rowCopy...)
+	for _, item := range items {
+		for _, row := range item.rows {
+			rowCopy := make([]any, len(row))
+			copy(rowCopy, row)
+			args = append(args, rowCopy...)
+		}
 	}
 
 	return sb.String(), args
@@ -288,7 +302,7 @@ func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, cm *clo
 	return m, nil
 }
 
-func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []string, bufSize int) (*BulkInsertOperator, error) {
+func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column, bufSize int) (*BulkInsertOperator, error) {
 	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
 
 	ctx := b.globalCtx.Context()

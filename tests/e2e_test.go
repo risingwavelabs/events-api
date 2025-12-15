@@ -1,24 +1,47 @@
 package tests
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIngestEvents(t *testing.T) {
-	N := 10000
+	var (
+		N = 1000
+		L = 1000
+	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	data, err := json.Marshal(map[string]any{
+		"i": 1,
+		"b": false,
+		"s": "test",
+		"f": 3.14,
+		"j": map[string]any{
+			"nested": "value",
+		},
+		"a": []string{"s1", "s2"},
+	})
+	require.NoError(t, err)
+	line := []byte{}
+	for range L {
+		line = append(line, data...)
+		line = append(line, '\n')
+	}
 
 	reqs := []*http.Request{}
 	for range N {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:8080/v1/events?name=test", strings.NewReader("{\"c\": 1}"))
+		req, err := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodPost,
+			"http://localhost:8080/v1/events?name=test",
+			bytes.NewReader(line),
+		)
 		if err != nil {
 			t.Fatal("failed to create request:", err.Error())
 		}

@@ -2,6 +2,7 @@ package rw
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,6 +77,8 @@ type Column struct {
 
 	// Type Data type of the column
 	Type string `json:"type"`
+
+	isArray bool
 }
 
 type Relation struct {
@@ -205,6 +208,7 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 				Type:         columnType,
 				IsPrimaryKey: isPrimaryKey,
 				IsHidden:     isHidden,
+				isArray:      strings.HasSuffix(columnType, "[]"),
 			})
 			updatedRelations[key] = relation
 		}
