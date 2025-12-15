@@ -14,14 +14,14 @@ EAPI_PORT=5070 EAPI_RW_DSN='postgres://root:@localhost:24566/dev' ./eventapi
 
 Create table and insert data through eventapi.
 ```shell 
-# Create table with psql (sleep 1 to wait for the synchronization)
-psql "postgresql://root:@localhost:24566/dev" -c 'CREATE TABLE test(i INT, b BOOLEAN, s STRING, f FLOAT, j JSONB, a STRING[])' && sleep 1
+# Create table (sleep 1 to wait for the synchronization)
+curl -X POST -d 'CREATE TABLE test(i INT, b BOOLEAN, s STRING, f FLOAT, j JSONB, a STRING[])' http://localhost:5070/v1/sql && sleep 1
 
 # Insert data
 curl -X POST -d '{"i": 1, "b": false, "s": "test", "f": 3.14, "j": {"nested": "value"}, "a": ["1", "2"]}' 'http://localhost:5070/v1/events?name=test'
 
 # Check data
-psql "postgresql://root:@localhost:24566/dev" -c 'SELECT * FROM test'
+curl -X POST -d 'SELECT * FROM test' http://localhost:5070/v1/sql
 ```
 
 Clean up

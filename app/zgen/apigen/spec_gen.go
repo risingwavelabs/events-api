@@ -17,6 +17,33 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Column defines model for Column.
+type Column struct {
+	// IsHidden Whether the column is hidden
+	IsHidden bool `json:"isHidden"`
+
+	// IsPrimaryKey Whether the column is a primary key
+	IsPrimaryKey bool `json:"isPrimaryKey"`
+
+	// Name Name of the column
+	Name string `json:"name"`
+
+	// Type Data type of the column
+	Type string `json:"type"`
+}
+
+// QueryResponse defines model for QueryResponse.
+type QueryResponse struct {
+	Columns []Column `json:"columns"`
+
+	// Error Error message if the query failed
+	Error *string                  `json:"error,omitempty"`
+	Rows  []map[string]interface{} `json:"rows"`
+
+	// RowsAffected Number of rows affected by the query
+	RowsAffected int32 `json:"rowsAffected"`
+}
+
 // IngestEventJSONBody defines parameters for IngestEvent.
 type IngestEventJSONBody = map[string]interface{}
 
@@ -26,8 +53,14 @@ type IngestEventParams struct {
 	Name string `form:"name" json:"name"`
 }
 
+// ExecuteSQLTextBody defines parameters for ExecuteSQL.
+type ExecuteSQLTextBody = string
+
 // IngestEventJSONRequestBody defines body for IngestEvent for application/json ContentType.
 type IngestEventJSONRequestBody = IngestEventJSONBody
+
+// ExecuteSQLTextRequestBody defines body for ExecuteSQL for text/plain ContentType.
+type ExecuteSQLTextRequestBody = ExecuteSQLTextBody
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -109,6 +142,11 @@ type ClientInterface interface {
 
 	// HealthCheck request
 	HealthCheck(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExecuteSQLWithBody request with any body
+	ExecuteSQLWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ExecuteSQLWithTextBody(ctx context.Context, body ExecuteSQLTextRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) IngestEventWithBody(ctx context.Context, params *IngestEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -137,6 +175,30 @@ func (c *Client) IngestEvent(ctx context.Context, params *IngestEventParams, bod
 
 func (c *Client) HealthCheck(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewHealthCheckRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ExecuteSQLWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExecuteSQLRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ExecuteSQLWithTextBody(ctx context.Context, body ExecuteSQLTextRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExecuteSQLRequestWithTextBody(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -232,6 +294,42 @@ func NewHealthCheckRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewExecuteSQLRequestWithTextBody calls the generic ExecuteSQL builder with text/plain body
+func NewExecuteSQLRequestWithTextBody(server string, body ExecuteSQLTextRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyReader = strings.NewReader(string(body))
+	return NewExecuteSQLRequestWithBody(server, "text/plain", bodyReader)
+}
+
+// NewExecuteSQLRequestWithBody generates requests for ExecuteSQL with any type of body
+func NewExecuteSQLRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/sql")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -282,6 +380,11 @@ type ClientWithResponsesInterface interface {
 
 	// HealthCheckWithResponse request
 	HealthCheckWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*HealthCheckResponse, error)
+
+	// ExecuteSQLWithBodyWithResponse request with any body
+	ExecuteSQLWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteSQLResponse, error)
+
+	ExecuteSQLWithTextBodyWithResponse(ctx context.Context, body ExecuteSQLTextRequestBody, reqEditors ...RequestEditorFn) (*ExecuteSQLResponse, error)
 }
 
 type IngestEventResponse struct {
@@ -326,6 +429,28 @@ func (r HealthCheckResponse) StatusCode() int {
 	return 0
 }
 
+type ExecuteSQLResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *QueryResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ExecuteSQLResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExecuteSQLResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // IngestEventWithBodyWithResponse request with arbitrary body returning *IngestEventResponse
 func (c *ClientWithResponses) IngestEventWithBodyWithResponse(ctx context.Context, params *IngestEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*IngestEventResponse, error) {
 	rsp, err := c.IngestEventWithBody(ctx, params, contentType, body, reqEditors...)
@@ -350,6 +475,23 @@ func (c *ClientWithResponses) HealthCheckWithResponse(ctx context.Context, reqEd
 		return nil, err
 	}
 	return ParseHealthCheckResponse(rsp)
+}
+
+// ExecuteSQLWithBodyWithResponse request with arbitrary body returning *ExecuteSQLResponse
+func (c *ClientWithResponses) ExecuteSQLWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteSQLResponse, error) {
+	rsp, err := c.ExecuteSQLWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExecuteSQLResponse(rsp)
+}
+
+func (c *ClientWithResponses) ExecuteSQLWithTextBodyWithResponse(ctx context.Context, body ExecuteSQLTextRequestBody, reqEditors ...RequestEditorFn) (*ExecuteSQLResponse, error) {
+	rsp, err := c.ExecuteSQLWithTextBody(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExecuteSQLResponse(rsp)
 }
 
 // ParseIngestEventResponse parses an HTTP response from a IngestEventWithResponse call
@@ -384,6 +526,32 @@ func ParseHealthCheckResponse(rsp *http.Response) (*HealthCheckResponse, error) 
 	return response, nil
 }
 
+// ParseExecuteSQLResponse parses an HTTP response from a ExecuteSQLWithResponse call
+func ParseExecuteSQLResponse(rsp *http.Response) (*ExecuteSQLResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExecuteSQLResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest QueryResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Ingest a new event
@@ -392,6 +560,9 @@ type ServerInterface interface {
 	// Health check endpoint
 	// (GET /healthz)
 	HealthCheck(c *fiber.Ctx) error
+	// Execute a SQL query
+	// (POST /sql)
+	ExecuteSQL(c *fiber.Ctx) error
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -439,6 +610,12 @@ func (siw *ServerInterfaceWrapper) HealthCheck(c *fiber.Ctx) error {
 	return siw.Handler.HealthCheck(c)
 }
 
+// ExecuteSQL operation middleware
+func (siw *ServerInterfaceWrapper) ExecuteSQL(c *fiber.Ctx) error {
+
+	return siw.Handler.ExecuteSQL(c)
+}
+
 // FiberServerOptions provides options for the Fiber server.
 type FiberServerOptions struct {
 	BaseURL     string
@@ -463,5 +640,7 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Post(options.BaseURL+"/events", wrapper.IngestEvent)
 
 	router.Get(options.BaseURL+"/healthz", wrapper.HealthCheck)
+
+	router.Post(options.BaseURL+"/sql", wrapper.ExecuteSQL)
 
 }

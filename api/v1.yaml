@@ -31,6 +31,24 @@ paths:
         '201':
           description: Event ingested successfully
 
+  /sql:
+    post:
+      summary: Execute a SQL query
+      operationId: executeSQL
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              description: SQL query to be executed
+      responses:
+        '200':
+          description: SQL query executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResponse"
   /healthz:
     get:
       summary: Health check endpoint
@@ -38,3 +56,50 @@ paths:
       responses:
         '200':
           description: Service is healthy
+
+components:
+  schemas:
+    Column:
+      type: object
+      required:
+        - name
+        - type
+        - isPrimaryKey
+        - isHidden
+      properties:
+        name:
+          type: string
+          description: Name of the column
+        type:
+          type: string
+          description: Data type of the column
+        isPrimaryKey:
+          type: boolean
+          description: Whether the column is a primary key
+        isHidden:
+          type: boolean
+          description: Whether the column is hidden
+
+    QueryResponse:
+      type: object
+      required:
+        - columns
+        - rows
+        - rowsAffected
+      properties:
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Column"
+        rows:
+          type: array
+          items:
+            type: object
+            description: Row of the query result, the key is the column name and the value is the column value
+        rowsAffected:
+          type: integer
+          format: int32
+          description: Number of rows affected by the query
+        error:
+          type: string
+          description: Error message if the query failed

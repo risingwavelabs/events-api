@@ -28,3 +28,11 @@ func (h *Handler) IngestEvent(c *fiber.Ctx, params apigen.IngestEventParams) err
 func (h *Handler) HealthCheck(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
+
+func (h *Handler) ExecuteSQL(c *fiber.Ctx) error {
+	res, err := h.rw.QueryDatabase(c.Context(), string(c.Body()))
+	if err != nil {
+		return err
+	}
+	return c.JSON(res)
+}
