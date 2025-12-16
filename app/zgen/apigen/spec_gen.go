@@ -17,6 +17,20 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for WsMessageType.
+const (
+	WsMessageTypePing        WsMessageType = "ping"
+	WsMessageTypeSubscribe   WsMessageType = "subscribe"
+	WsMessageTypeUnsubscribe WsMessageType = "unsubscribe"
+)
+
+// Defines values for WsResponseType.
+const (
+	WsResponseTypeError   WsResponseType = "error"
+	WsResponseTypePing    WsResponseType = "ping"
+	WsResponseTypeSuccess WsResponseType = "success"
+)
+
 // Column defines model for Column.
 type Column struct {
 	// IsHidden Whether the column is hidden
@@ -42,6 +56,64 @@ type QueryResponse struct {
 
 	// RowsAffected Number of rows affected by the query
 	RowsAffected int32 `json:"rowsAffected"`
+}
+
+// WsMessage defines model for WsMessage.
+type WsMessage struct {
+	ID      string        `json:"ID"`
+	Payload WsPayload     `json:"payload"`
+	Type    WsMessageType `json:"type"`
+}
+
+// WsMessageType defines model for WsMessage.Type.
+type WsMessageType string
+
+// WsPayload defines model for WsPayload.
+type WsPayload struct {
+	Subscribe   *WsSubscribePayload   `json:"subscribe,omitempty"`
+	Unsubscribe *WsUnsubscribePayload `json:"unsubscribe,omitempty"`
+}
+
+// WsResError defines model for WsResError.
+type WsResError struct {
+	Msg string `json:"msg"`
+}
+
+// WsResPing defines model for WsResPing.
+type WsResPing struct {
+	TimestampMillis int64 `json:"timestampMillis"`
+}
+
+// WsResSuccess defines model for WsResSuccess.
+type WsResSuccess struct {
+	Msg string `json:"msg"`
+}
+
+// WsResponse defines model for WsResponse.
+type WsResponse struct {
+	ID      string            `json:"ID"`
+	Payload WsResponsePayload `json:"payload"`
+	Type    WsResponseType    `json:"type"`
+}
+
+// WsResponseType defines model for WsResponse.Type.
+type WsResponseType string
+
+// WsResponsePayload defines model for WsResponsePayload.
+type WsResponsePayload struct {
+	Error   *WsResError   `json:"error,omitempty"`
+	Ping    *WsResPing    `json:"ping,omitempty"`
+	Success *WsResSuccess `json:"success,omitempty"`
+}
+
+// WsSubscribePayload defines model for WsSubscribePayload.
+type WsSubscribePayload struct {
+	Topic string `json:"topic"`
+}
+
+// WsUnsubscribePayload defines model for WsUnsubscribePayload.
+type WsUnsubscribePayload struct {
+	Topic string `json:"topic"`
 }
 
 // IngestEventJSONBody defines parameters for IngestEvent.

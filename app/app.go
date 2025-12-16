@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudcarver/anclax/lib/ws"
+	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/log"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/google/uuid"
 	"github.com/risingwavelabs/eventapi/app/zgen/apigen"
 	"github.com/risingwavelabs/eventapi/pkg/config"
 	"github.com/risingwavelabs/eventapi/pkg/gctx"
@@ -41,7 +44,7 @@ func ErrorHandler(c *fiber.Ctx, err error) error {
 	return c.Status(code).SendString(err.Error())
 }
 
-func NewApp(cfg *config.Config, gctx *gctx.GlobalContext, _log *zap.Logger, si apigen.ServerInterface) *App {
+func NewApp(cfg *config.Config, gctx *gctx.GlobalContext, _log *zap.Logger, si apigen.ServerInterface, wsc *ws.WebsocketController) *App {
 	log := _log.Named("app")
 
 	app := fiber.New(fiber.Config{
@@ -50,12 +53,28 @@ func NewApp(cfg *config.Config, gctx *gctx.GlobalContext, _log *zap.Logger, si a
 		Concurrency:  256 * 1024,       // 256k
 	})
 
+	// lib middlewares
 	app.Use(recover.New(recover.Config{
 		EnableStackTrace: true,
 	}))
 
 	app.Use(requestid.New())
 
+	// websocket
+	var wsPath = "/ws"
+	app.Use(wsPath, func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			c.Locals("allowed", true)
+			c.Locals("ws_request_id", uuid.New().String())
+			return c.Next()
+		}
+		return fiber.ErrUpgradeRequired
+	})
+	app.Get(wsPath, websocket.New(func(c *websocket.Conn) {
+		wsc.HandleConn(c)
+	}))
+
+	// api handler
 	apigen.RegisterHandlersWithOptions(app, si, apigen.FiberServerOptions{
 		BaseURL: "/v1",
 	})

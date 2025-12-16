@@ -103,3 +103,81 @@ components:
         error:
           type: string
           description: Error message if the query failed
+    
+    WsMessage:
+      type: object
+      required: [ID, type, payload]
+      properties:
+        ID:
+          type: string
+        type:
+          type: string
+          enum: [subscribe, unsubscribe, ping]
+        payload:
+          $ref: "#/components/schemas/WsPayload"
+
+    WsPayload:
+      type: object
+      properties:
+        subscribe:
+          $ref: "#/components/schemas/WsSubscribePayload"
+        unsubscribe:
+          $ref: "#/components/schemas/WsUnsubscribePayload"
+
+    WsSubscribePayload:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+
+    WsUnsubscribePayload:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+
+    WsResponse:
+      type: object
+      required: [ID, type, payload]
+      properties:
+        ID:
+          type: string
+        type:
+          type: string
+          enum: [success, error, ping]
+        payload:
+          $ref: "#/components/schemas/WsResponsePayload"
+    
+    WsResponsePayload:
+      type: object
+      properties:
+        success:
+          $ref: "#/components/schemas/WsResSuccess"
+        error:
+          $ref: "#/components/schemas/WsResError"
+        ping:
+          $ref: "#/components/schemas/WsResPing"
+    
+    WsResSuccess:
+      type: object
+      required: [msg]
+      properties:
+        msg:
+          type: string
+
+    WsResError:
+      type: object
+      required: [msg]
+      properties:
+        msg:
+          type: string
+
+    WsResPing:
+      type: object
+      required: [timestampMillis]
+      properties:
+        timestampMillis:
+          type: integer
+          format: int64

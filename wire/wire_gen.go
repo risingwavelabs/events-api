@@ -7,6 +7,7 @@
 package wire
 
 import (
+	"github.com/cloudcarver/anclax/lib/ws"
 	"github.com/risingwavelabs/eventapi/app"
 	"github.com/risingwavelabs/eventapi/pkg/closer"
 	"github.com/risingwavelabs/eventapi/pkg/config"
@@ -41,6 +42,13 @@ func InitApp() (*app.App, error) {
 		return nil, err
 	}
 	serverInterface := app.NewHandler(risingWave, eventService)
-	appApp := app.NewApp(configConfig, globalContext, zapLogger, serverInterface)
+	websocketController := NewWsc(globalContext)
+	appApp := app.NewApp(configConfig, globalContext, zapLogger, serverInterface, websocketController)
 	return appApp, nil
+}
+
+// wire.go:
+
+func NewWsc(gctx2 *gctx.GlobalContext) *ws.WebsocketController {
+	return ws.New(gctx2.Context(), &ws.WsCfg{})
 }
