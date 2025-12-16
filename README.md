@@ -21,13 +21,13 @@ curl -L https://rwtools.s3.amazonaws.com/eventapi/download.sh | sh
 ```
 
 ```shell
-EAPI_PORT=5070 EAPI_RW_DSN='postgres://root:@localhost:4566/dev' ./eventapi
+EAPI_RW_DSN='postgres://root:@localhost:4566/dev' ./eventapi
 ```
 
 #### Docker
 
 ```shell
-docker run --rm -p 5070:5070 risingwavelabs/events-api:latest 
+docker run -e EAPI_RW_DSN=postgres://root:@host.docker.internal:4566/dev --rm -p 8000:8000 --name events-api risingwavelabs/events-api:latest 
 ```
 
 ### Basic Usage
@@ -37,7 +37,7 @@ Create a table:
 ```shell
 curl -X POST \
   -d 'CREATE TABLE test(i INT, b BOOLEAN, s STRING, f FLOAT, j JSONB, a STRING[])' \
-  http://localhost:5070/v1/sql
+  http://localhost:8000/v1/sql
 
 # Wait briefly for table synchronization
 sleep 1
@@ -49,7 +49,7 @@ Insert events:
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"i": 1, "b": false, "s": "test", "f": 3.14, "j": {"nested": "value"}, "a": ["1", "2"]}' \
-  'http://localhost:5070/v1/events?name=test'
+  'http://localhost:8000/v1/events?name=test'
 ```
 
 Query data:
@@ -57,7 +57,7 @@ Query data:
 ```shell
 curl -X POST \
   -d 'SELECT * FROM test' \
-  http://localhost:5070/v1/sql
+  http://localhost:8000/v1/sql
 ```
 
 ### Cleanup
@@ -73,7 +73,7 @@ The Events API can be configured using environment variables or a YAML configura
 
 ### Environment Variables
 
-- `EAPI_PORT`: HTTP server port (default: 8020)
+- `EAPI_PORT`: HTTP server port (default: 8000)
 - `EAPI_HOST`: HTTP server host (default: 0.0.0.0)
 - `EAPI_RW_DSN`: RisingWave connection string (required)
   - Format: `postgres://user:password@host:port/database`

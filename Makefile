@@ -42,3 +42,5 @@ build-docker:
 push-docker: build-docker
 	@docker push $(REPO):$(VERSION)
 	@docker push $(REPO):latest
+
+ci: push-docker push-binary
