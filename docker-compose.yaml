@@ -3,34 +3,11 @@ services:
     depends_on:
       - rw-svc
     restart: on-failure
-    build: 
-      dockerfile: ./dev/Dockerfile.dev
+    image: risingwavelabs/events-api:latest
     ports:
-      - "8080:8080"
-    command:
-    - go
-    - run
-    - cmd/main.go
+      - "8000:8000"
     environment:
-      EAPI_HOST: 0.0.0.0
-      EAPI_PORT: 8080
       EAPI_RW_DSN: postgres://root:@rw-svc:4566/dev
-    volumes:
-      - ./:/app
-      - go-data:/go/pkg/mod
-      - go-build-data:/root/.cache/go-build
-
-  console:
-    image: risingwavelabs/risingwave-console:v0.5.1-pgbundle
-    ports:
-      - "8020:8020"
-    environment:
-      RCONSOLE_ROOT_PASSWORD: 'root'
-      RCONSOLE_INIT: /app/init.yaml
-    volumes:
-      - test-risingwave-console-data:/risingwave-console-data
-      - ./dev/init.yaml:/app/init.yaml
-      - test-db-data:/var/lib/postgresql/data
 
   rw-svc:
     image: risingwavelabs/risingwave:v2.6.2
@@ -75,9 +52,5 @@ services:
                    --compactor-total-memory-bytes=1000000000\""
 
 volumes:
-  go-data:
-  go-build-data:
-  test-risingwave-console-data:
-  test-db-data:
   test-rw-meta-store:
   test-rw-data-store:

@@ -10,7 +10,9 @@ A lightweight HTTP API layer for ingesting data into RisingWave. The Events API 
 
 ## Quick Start
 
-### Installation
+### Run Events API
+
+#### Binary
 
 Download and install the Events API binary:
 
@@ -18,16 +20,14 @@ Download and install the Events API binary:
 curl -L https://rwtools.s3.amazonaws.com/eventapi/download.sh | sh
 ```
 
-### Running with Docker
+```shell
+EAPI_PORT=5070 EAPI_RW_DSN='postgres://root:@localhost:4566/dev' ./eventapi
+```
 
-Start RisingWave and Events API:
+#### Docker
 
 ```shell
-# Start RisingWave
-docker run --rm -p 24566:4566 -d --name rw-eventapi risingwavelabs/risingwave:v2.6.2
-
-# Start Events API
-EAPI_PORT=5070 EAPI_RW_DSN='postgres://root:@localhost:24566/dev' ./eventapi
+docker run --rm -p 5070:5070 risingwavelabs/events-api:latest 
 ```
 
 ### Basic Usage

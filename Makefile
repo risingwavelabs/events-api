@@ -31,3 +31,14 @@ push-binary: build-binary
 	@cp dev/scripts/download.sh upload/download.sh
 	@echo 'latest version: $(VERSION)' > upload/metadata.txt
 	@aws s3 cp --recursive upload/ s3://rwtools/eventapi
+
+REPO := risingwavelabs/events-api
+
+build-docker:
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/events-api-amd64 cmd/main.go
+	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/events-api-arm64 cmd/main.go
+	@docker buildx build --sbom=true --platform linux/amd64,linux/arm64 -t $(REPO):$(VERSION) -t $(REPO):latest -f dev/Dockerfile --load .
+
+push-docker: build-docker
+	@docker push $(REPO):$(VERSION)
+	@docker push $(REPO):latest

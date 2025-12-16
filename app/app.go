@@ -18,6 +18,7 @@ type App struct {
 	log  *zap.Logger
 	app  *fiber.App
 	gctx *gctx.GlobalContext
+	host string
 	port int
 }
 
@@ -60,14 +61,14 @@ func NewApp(cfg *config.Config, gctx *gctx.GlobalContext, _log *zap.Logger, si a
 		BaseURL: "/v1",
 	})
 
-	var port = 8020
+	var port = 8000
 	if cfg.Port != 0 {
 		port = cfg.Port
 	} else {
 		log.Info("Using default port", zap.Int("port", port))
 	}
 
-	var host = "localhost"
+	var host = "0.0.0.0"
 	if cfg.Host != "" {
 		host = cfg.Host
 	} else {
@@ -86,6 +87,7 @@ func NewApp(cfg *config.Config, gctx *gctx.GlobalContext, _log *zap.Logger, si a
 		log:  log,
 		port: port,
 		gctx: gctx,
+		host: host,
 	}
 }
 
@@ -93,7 +95,7 @@ func (a *App) Listen() error {
 	shutdownChan := make(chan error)
 
 	go func() {
-		if err := a.app.Listen(fmt.Sprintf(":%d", a.port)); err != nil {
+		if err := a.app.Listen(fmt.Sprintf("%s:%d", a.host, a.port)); err != nil {
 			shutdownChan <- err
 		}
 	}()

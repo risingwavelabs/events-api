@@ -6,7 +6,7 @@ services:
     build: 
       dockerfile: ./dev/Dockerfile.dev
     ports:
-      - "8080:8080"
+      - "8000:8000"
       - "8777:8777"
     command:
     - go
@@ -15,7 +15,6 @@ services:
     environment:
       LOG_LEVEL: DEBUG
       EAPI_HOST: 0.0.0.0
-      EAPI_PORT: 8080
       EAPI_RW_DSN: postgres://root:@rw-svc:4566/dev
       EAPI_DEBUG_ENABLE: "true"
       EAPI_DEBUG_PORT: 8777
@@ -25,7 +24,7 @@ services:
       - go-build-data:/root/.cache/go-build
 
   console:
-    image: risingwavelabs/risingwave-console:v0.5.1-pgbundle
+    image: risingwavelabs/risingwave-console:v0.5.2-pgbundle
     ports:
       - "8020:8020"
     environment:
