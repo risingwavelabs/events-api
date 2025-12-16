@@ -1,65 +1,144 @@
+# RisingWave Event API
+
+A lightweight HTTP API layer for ingesting data into RisingWave. The Event API provides a simple HTTP interface for real-time data ingestion and SQL query execution, making it easy to stream events into RisingWave without complex configuration.
+
+## Features
+
+- **Simple HTTP Ingestion**: Send JSON events directly to RisingWave tables via HTTP POST requests
+- **SQL Execution**: Execute DDL and DML statements through a HTTP endpoint
+- **Lightweight**: Minimal overhead between your application and RisingWave
+
 ## Quick Start
 
-Start RisingWave and eventapi in one TTY.
-```shell
-# download and install eventapi
-curl -L https://rwtools.s3.amazonaws.com/eventapi/download.sh | sh
+### Installation
 
-# start RisingWave
+Download and install the Event API binary:
+
+```shell
+curl -L https://rwtools.s3.amazonaws.com/eventapi/download.sh | sh
+```
+
+### Running with Docker
+
+Start RisingWave and Event API:
+
+```shell
+# Start RisingWave
 docker run --rm -p 24566:4566 -d --name rw-eventapi risingwavelabs/risingwave:v2.6.2
 
-# start eventapi
+# Start Event API
 EAPI_PORT=5070 EAPI_RW_DSN='postgres://root:@localhost:24566/dev' ./eventapi
 ```
 
-Create table and insert data through eventapi.
-```shell 
-# Create table (sleep 1 to wait for the synchronization)
-curl -X POST -d 'CREATE TABLE test(i INT, b BOOLEAN, s STRING, f FLOAT, j JSONB, a STRING[])' http://localhost:5070/v1/sql && sleep 1
+### Basic Usage
 
-# Insert data
-curl -X POST -d '{"i": 1, "b": false, "s": "test", "f": 3.14, "j": {"nested": "value"}, "a": ["1", "2"]}' 'http://localhost:5070/v1/events?name=test'
+Create a table:
 
-# Check data
-curl -X POST -d 'SELECT * FROM test' http://localhost:5070/v1/sql
+```shell
+curl -X POST \
+  -d 'CREATE TABLE test(i INT, b BOOLEAN, s STRING, f FLOAT, j JSONB, a STRING[])' \
+  http://localhost:5070/v1/sql
+
+# Wait briefly for table synchronization
+sleep 1
 ```
 
-Clean up
+Insert events:
+
+```shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"i": 1, "b": false, "s": "test", "f": 3.14, "j": {"nested": "value"}, "a": ["1", "2"]}' \
+  'http://localhost:5070/v1/events?name=test'
+```
+
+Query data:
+
+```shell
+curl -X POST \
+  -d 'SELECT * FROM test' \
+  http://localhost:5070/v1/sql
+```
+
+### Cleanup
+
 ```shell
 docker stop rw-eventapi
 ```
 
 
+## Configuration
+
+The Event API can be configured using environment variables or a YAML configuration file (`eventapi.yaml`). All environment variables use the `EAPI_` prefix.
+
+### Environment Variables
+
+- `EAPI_PORT`: HTTP server port (default: 8020)
+- `EAPI_HOST`: HTTP server host (default: 0.0.0.0)
+- `EAPI_RW_DSN`: RisingWave connection string (required)
+  - Format: `postgres://user:password@host:port/database`
+  - Example: `postgres://root:@localhost:4566/dev`
+- `EAPI_DEBUG_ENABLE`: Enable debug endpoints (default: false)
+- `EAPI_DEBUG_PORT`: Debug server port (default: 8777)
+
 ## Development
 
-Start development environment
+### Setting Up Development Environment
+
+Start the development environment with Docker Compose:
+
 ```shell
 make up
-
-# Please Ctrl + C to stop only the dev container
-
-# start and watch the dev container
-make dev 
 ```
 
-Install toolchain management tool anclax and generate code
+Start and watch the development container (hot reload):
+
 ```shell
+make dev
+```
+
+Press `Ctrl + C` to stop the development container.
+
+### Code Generation
+
+The project uses [anclax](https://github.com/cloudcarver/anclax) for code generation. Install it and regenerate code after modifying API specifications:
+
+```shell
+# Install anclax
 go install github.com/cloudcarver/anclax/cmd/anclax@latest
-anclax gen # generate code after api.yaml/constructors/... are modified
+
+# Generate code after modifying api/v1.yaml or wire constructors
+anclax gen
 ```
 
-## Test
+### Running Tests
 
-Check `tests/e2e_test.go` for more details.
+End-to-end tests are available in `tests/e2e_test.go`:
 
 ```shell
+# Run all tests
+go test -v ./tests/...
+
+# Run specific test
 go test -count=1 -v -timeout 30s -run ^TestIngestEvents$ github.com/risingwavelabs/eventapi/tests
 ```
 
-## Debug
+### Debugging
 
-Flame Graph
+The Event API includes pprof endpoints for profiling when debug mode is enabled.
+
+Generate a flame graph:
 
 ```shell
-go tool pprof -http=:8779 http://127.0.0.1:8777/debug/pprof/profile\?seconds\=20 
+go tool pprof -http=:8779 http://127.0.0.1:8777/debug/pprof/profile\?seconds\=20
+```
+
+## Building from Source
+
+```shell
+# Build the binary
+go build -o eventapi ./cmd/main.go
+
+# Check version
+./eventapi -version
 ```
