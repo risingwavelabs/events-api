@@ -1,6 +1,6 @@
-# RisingWave Event API
+# RisingWave Events API
 
-A lightweight HTTP API layer for ingesting data into RisingWave. The Event API provides a simple HTTP interface for real-time data ingestion and SQL query execution, making it easy to stream events into RisingWave without complex configuration.
+A lightweight HTTP API layer for ingesting data into RisingWave. The Events API provides a simple HTTP interface for real-time data ingestion and SQL query execution, making it easy to stream events into RisingWave without complex configuration.
 
 ## Features
 
@@ -12,7 +12,7 @@ A lightweight HTTP API layer for ingesting data into RisingWave. The Event API p
 
 ### Installation
 
-Download and install the Event API binary:
+Download and install the Events API binary:
 
 ```shell
 curl -L https://rwtools.s3.amazonaws.com/eventapi/download.sh | sh
@@ -20,13 +20,13 @@ curl -L https://rwtools.s3.amazonaws.com/eventapi/download.sh | sh
 
 ### Running with Docker
 
-Start RisingWave and Event API:
+Start RisingWave and Events API:
 
 ```shell
 # Start RisingWave
 docker run --rm -p 24566:4566 -d --name rw-eventapi risingwavelabs/risingwave:v2.6.2
 
-# Start Event API
+# Start Events API
 EAPI_PORT=5070 EAPI_RW_DSN='postgres://root:@localhost:24566/dev' ./eventapi
 ```
 
@@ -69,7 +69,7 @@ docker stop rw-eventapi
 
 ## Configuration
 
-The Event API can be configured using environment variables or a YAML configuration file (`eventapi.yaml`). All environment variables use the `EAPI_` prefix.
+The Events API can be configured using environment variables or a YAML configuration file (`eventapi.yaml`). All environment variables use the `EAPI_` prefix.
 
 ### Environment Variables
 
@@ -125,7 +125,7 @@ go test -count=1 -v -timeout 30s -run ^TestIngestEvents$ github.com/risingwavela
 
 ### Debugging
 
-The Event API includes pprof endpoints for profiling when debug mode is enabled.
+The Events API includes pprof endpoints for profiling when debug mode is enabled.
 
 Generate a flame graph:
 
