@@ -1,4 +1,4 @@
-package eventapi
+package root
 
 import (
 	"bytes"

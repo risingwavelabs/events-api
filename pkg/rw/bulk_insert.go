@@ -11,8 +11,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/risingwavelabs/eventapi/pkg/closer"
-	"github.com/risingwavelabs/eventapi/pkg/gctx"
+	"github.com/risingwavelabs/events-api/pkg/closer"
+	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
 
@@ -29,49 +29,49 @@ type Connection interface {
 
 var BulkInsertError = promauto.NewCounter(
 	prometheus.CounterOpts{
-		Name: "eventapi_rw_bulk_insert_error",
+		Name: "events-api_rw_bulk_insert_error",
 		Help: "The number of errors encountered during bulk insert operations",
 	},
 )
 
 var BulkInsertFlushByTimeout = promauto.NewCounter(
 	prometheus.CounterOpts{
-		Name: "eventapi_rw_bulk_insert_flush_by_timeout",
+		Name: "events-api_rw_bulk_insert_flush_by_timeout",
 		Help: "The number of times the bulk insert buffer was flushed due to timeout",
 	},
 )
 
 var BulkInsertFlushBySize = promauto.NewCounter(
 	prometheus.CounterOpts{
-		Name: "eventapi_rw_bulk_insert_flush_by_size",
+		Name: "events-api_rw_bulk_insert_flush_by_size",
 		Help: "The number of times the bulk insert buffer was flushed due to reaching max size",
 	},
 )
 
 var FlushGoroutine = promauto.NewGauge(
 	prometheus.GaugeOpts{
-		Name: "eventapi_rw_bulk_insert_flush_goroutine",
+		Name: "events-api_rw_bulk_insert_flush_goroutine",
 		Help: "The number of active goroutines flushing the bulk insert buffer",
 	},
 )
 
 var FlushSuccessCount = promauto.NewCounter(
 	prometheus.CounterOpts{
-		Name: "eventapi_rw_bulk_insert_flush_success_count",
+		Name: "events-api_rw_bulk_insert_flush_success_count",
 		Help: "The number of successful flush operations",
 	},
 )
 
 var FlushErrCount = promauto.NewCounter(
 	prometheus.CounterOpts{
-		Name: "eventapi_rw_bulk_insert_flush_error_count",
+		Name: "events-api_rw_bulk_insert_flush_error_count",
 		Help: "The number of errors encountered during flush operations",
 	},
 )
 
 var BulkInsertBackpressureHit = promauto.NewCounter(
 	prometheus.CounterOpts{
-		Name: "eventapi_rw_bulk_insert_backpressure_hit",
+		Name: "events-api_rw_bulk_insert_backpressure_hit",
 		Help: "The number of times bulk insert backpressure was hit",
 	},
 )

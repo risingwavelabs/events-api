@@ -14,10 +14,10 @@ services:
     - cmd/main.go
     environment:
       LOG_LEVEL: DEBUG
-      EAPI_HOST: 0.0.0.0
-      EAPI_RW_DSN: postgres://root:@rw-svc:4566/dev
-      EAPI_DEBUG_ENABLE: "true"
-      EAPI_DEBUG_PORT: 8777
+      EVENTS_API_HOST: 0.0.0.0
+      EVENTS_API_RW_DSN: postgres://root:@rw-svc:4566/dev
+      EVENTS_API_DEBUG_ENABLE: "true"
+      EVENTS_API_DEBUG_PORT: 8777
     volumes:
       - ./:/app
       - go-data:/go/pkg/mod

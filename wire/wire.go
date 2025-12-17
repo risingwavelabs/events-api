@@ -4,12 +4,12 @@
 package wire
 
 import (
-	"github.com/risingwavelabs/eventapi/app"
-	"github.com/risingwavelabs/eventapi/pkg/closer"
-	"github.com/risingwavelabs/eventapi/pkg/config"
-	"github.com/risingwavelabs/eventapi/pkg/gctx"
-	"github.com/risingwavelabs/eventapi/pkg/logger"
-	"github.com/risingwavelabs/eventapi/pkg/rw"
+	"github.com/risingwavelabs/events-api/app"
+	"github.com/risingwavelabs/events-api/pkg/closer"
+	"github.com/risingwavelabs/events-api/pkg/config"
+	"github.com/risingwavelabs/events-api/pkg/gctx"
+	"github.com/risingwavelabs/events-api/pkg/logger"
+	"github.com/risingwavelabs/events-api/pkg/rw"
 
 	"github.com/google/wire"
 )

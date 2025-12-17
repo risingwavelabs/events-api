@@ -7,8 +7,8 @@ import (
 	"net/http/pprof"
 	"time"
 
-	"github.com/risingwavelabs/eventapi/pkg/config"
-	"github.com/risingwavelabs/eventapi/pkg/gctx"
+	"github.com/risingwavelabs/events-api/pkg/config"
+	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
 

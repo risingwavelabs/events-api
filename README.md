@@ -26,10 +26,10 @@ docker run --rm -p 4566:4566 --name risingwave risingwavelabs/risingwave:v2.6.2
 
 ```shell
 docker run --rm \
-  -e EAPI_RW_DSN=postgres://root:@host.docker.internal:4566/dev \
+  -e EVENTS_API_RW_DSN=postgres://root:@host.docker.internal:4566/dev \
   -p 8000:8000 \
   --name events-api \
-  risingwavelabs/events-api:latest
+  risingwavelabs/events-api:v0.1.3
 ```
 
 > **Note**: Use `host.docker.internal` to connect to RisingWave running on your host machine from within Docker.
@@ -39,13 +39,13 @@ docker run --rm \
 Download and install the Events API binary:
 
 ```shell
-curl -L https://rwtools.s3.amazonaws.com/eventapi/download.sh | sh
+curl -L https://rwtools.s3.amazonaws.com/events-api/download.sh | sh
 ```
 
 Run the Events API:
 
 ```shell
-EAPI_RW_DSN='postgres://root:@localhost:4566/dev' ./eventapi
+EVENTS_API_RW_DSN='postgres://root:@localhost:4566/dev' ./events-api
 ```
 
 ### Basic Usage
@@ -95,17 +95,17 @@ curl -X POST \
 
 ## Configuration
 
-The Events API can be configured using environment variables or a YAML configuration file (`eventapi.yaml`). All environment variables use the `EAPI_` prefix.
+The Events API can be configured using environment variables or a YAML configuration file (`events-api.yaml`). All environment variables use the `EVENTS_API_` prefix.
 
 ### Environment Variables
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `EAPI_PORT` | HTTP server port | `8000` | No |
-| `EAPI_HOST` | HTTP server host | `0.0.0.0` | No |
-| `EAPI_RW_DSN` | RisingWave connection string | - | **Yes** |
-| `EAPI_DEBUG_ENABLE` | Enable debug/profiling endpoints | `false` | No |
-| `EAPI_DEBUG_PORT` | Debug server port | `8777` | No |
+| `EVENTS_API_PORT` | HTTP server port | `8000` | No |
+| `EVENTS_API_HOST` | HTTP server host | `0.0.0.0` | No |
+| `EVENTS_API_RW_DSN` | RisingWave connection string | - | **Yes** |
+| `EVENTS_API_DEBUG_ENABLE` | Enable debug/profiling endpoints | `false` | No |
+| `EVENTS_API_DEBUG_PORT` | Debug server port | `8777` | No |
 
 ## Development
 
@@ -146,7 +146,7 @@ End-to-end tests are available in `tests/e2e_test.go`:
 go test -v ./tests/...
 
 # Run specific test
-go test -count=1 -v -timeout 30s -run ^TestIngestEvents$ github.com/risingwavelabs/eventapi/tests
+go test -count=1 -v -timeout 30s -run ^TestIngestEvents$ github.com/risingwavelabs/events-api/tests
 ```
 
 ### Debugging
@@ -165,13 +165,13 @@ go tool pprof -http=:8779 http://127.0.0.1:8777/debug/pprof/profile\?seconds\=20
 
 ```shell
 # Build for your current platform
-go build -o eventapi ./cmd/main.go
+go build -o events-api ./cmd/main.go
 
 # Build for specific platform
-GOOS=linux GOARCH=amd64 go build -o eventapi-linux-amd64 ./cmd/main.go
+GOOS=linux GOARCH=amd64 go build -o events-api-linux-amd64 ./cmd/main.go
 
 # Check version
-./eventapi -version
+./events-api -version
 ```
 
 ### Build with Make
@@ -203,7 +203,7 @@ Error: relation "table_name" does not exist
 Enable debug mode to access profiling endpoints:
 
 ```shell
-EAPI_DEBUG_ENABLE=true EAPI_RW_DSN='postgres://root:@localhost:4566/dev' ./eventapi
+EVENTS_API_DEBUG_ENABLE=true EVENTS_API_RW_DSN='postgres://root:@localhost:4566/dev' ./events-api
 ```
 
 Access pprof endpoints at `http://localhost:8777/debug/pprof/`

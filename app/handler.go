@@ -2,8 +2,8 @@ package app
 
 import (
 	"github.com/gofiber/fiber/v2"
-	"github.com/risingwavelabs/eventapi/app/zgen/apigen"
-	"github.com/risingwavelabs/eventapi/pkg/rw"
+	"github.com/risingwavelabs/events-api/app/zgen/apigen"
+	"github.com/risingwavelabs/events-api/pkg/rw"
 )
 
 type Handler struct {

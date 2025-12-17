@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/risingwavelabs/eventapi"
-	"github.com/risingwavelabs/eventapi/wire"
+	root "github.com/risingwavelabs/events-api"
+	"github.com/risingwavelabs/events-api/wire"
 )
 
 func main() {
@@ -14,7 +14,7 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Println(eventapi.Version)
+		fmt.Println(root.Version)
 		return
 	}
 

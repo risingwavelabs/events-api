@@ -1,4 +1,4 @@
-module github.com/risingwavelabs/eventapi
+module github.com/risingwavelabs/events-api
 
 go 1.25.5
 

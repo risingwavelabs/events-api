@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/risingwavelabs/eventapi/pkg/gctx"
+	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
 

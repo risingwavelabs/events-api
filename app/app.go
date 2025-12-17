@@ -8,9 +8,9 @@ import (
 	"github.com/gofiber/fiber/v2/log"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
-	"github.com/risingwavelabs/eventapi/app/zgen/apigen"
-	"github.com/risingwavelabs/eventapi/pkg/config"
-	"github.com/risingwavelabs/eventapi/pkg/gctx"
+	"github.com/risingwavelabs/events-api/app/zgen/apigen"
+	"github.com/risingwavelabs/events-api/pkg/config"
+	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
 

@@ -21,18 +21,18 @@ if ! [ -x "$(command -v curl)" ]; then
 fi
 
 # check if the binary exists
-download_url="https://rwtools.s3.ap-southeast-1.amazonaws.com/eventapi/$_os/$_arch/eventapi"
+download_url="https://rwtools.s3.ap-southeast-1.amazonaws.com/events-api/$_os/$_arch/events-api"
 status_code=$(curl -s -o /dev/null -I -w '%{http_code}' "$download_url")
 
 echo "$download_url"
 
 if [ "$status_code" != 200 ]; then
-	echo "Error $status_code: failed to install eventapi."
+	echo "Error $status_code: failed to install events-api."
 	exit 1
 fi
 
 # download
-curl -L -o ./eventapi "$download_url"
-chmod 755 ./eventapi
+curl -L -o ./events-api "$download_url"
+chmod 755 ./events-api
 
-echo "eventapi installed successfully."
+echo "events-api installed successfully."

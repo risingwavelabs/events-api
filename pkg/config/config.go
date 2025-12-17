@@ -39,8 +39,8 @@ type Config struct {
 }
 
 const (
-	envPrefix  = "EAPI_"
-	configFile = "eventapi.yaml"
+	envPrefix  = "EVENTS_API_"
+	configFile = "events-api.yaml"
 )
 
 func NewConfig() (*Config, error) {

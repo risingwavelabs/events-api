@@ -21,16 +21,16 @@ VERSION := $(shell cat VERSION)
 
 build-binary:
 	@rm -rf upload
-	@CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -o upload/Darwin/x86_64/eventapi cmd/main.go
-	@CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o upload/Darwin/arm64/eventapi cmd/main.go
-	@CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o upload/Linux/x86_64/eventapi cmd/main.go
-	@CGO_ENABLED=0 GOOS=linux   GOARCH=386   go build -o upload/Linux/i386/eventapi cmd/main.go
-	@CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o upload/Linux/arm64/eventapi cmd/main.go
+	@CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -o upload/Darwin/x86_64/events-api cmd/main.go
+	@CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o upload/Darwin/arm64/events-api cmd/main.go
+	@CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o upload/Linux/x86_64/events-api cmd/main.go
+	@CGO_ENABLED=0 GOOS=linux   GOARCH=386   go build -o upload/Linux/i386/events-api cmd/main.go
+	@CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o upload/Linux/arm64/events-api cmd/main.go
 
 push-binary: build-binary
 	@cp dev/scripts/download.sh upload/download.sh
 	@echo 'latest version: $(VERSION)' > upload/metadata.txt
-	@aws s3 cp --recursive upload/ s3://rwtools/eventapi
+	@aws s3 cp --recursive upload/ s3://rwtools/events-api
 
 REPO := risingwavelabs/events-api
 
