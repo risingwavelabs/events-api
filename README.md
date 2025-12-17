@@ -189,27 +189,12 @@ go tool pprof -http=:8779 http://127.0.0.1:8777/debug/pprof/profile\?seconds\=20
 
 ## Building from Source
 
-### Build the Binary
-
 ```shell
 # Build for your current platform
 go build -o events-api ./cmd/main.go
 
-# Build for specific platform
-GOOS=linux GOARCH=amd64 go build -o events-api-linux-amd64 ./cmd/main.go
-
 # Check version
-./events-api -version
-```
-
-### Build with Make
-
-```shell
-# Build all platform binaries
-make build
-
-# Binaries will be in ./bin/
-ls -lh bin/
+./events-api --version
 ```
 
 ## Troubleshooting
