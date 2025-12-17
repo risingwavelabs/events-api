@@ -39,7 +39,7 @@ docker run --rm \
 Download and install the Events API binary:
 
 ```shell
-curl -L https://rwtools.s3.amazonaws.com/events-api/download.sh | sh
+curl -L https://go.risingwave.com/events-api | sh
 ```
 
 Run the Events API:
