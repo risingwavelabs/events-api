@@ -14,11 +14,7 @@ A lightweight HTTP API layer for ingesting data into RisingWave. The Events API 
 
 ### Prerequisites
 
-Ensure you have a running RisingWave instance. If you don't have one, you can start it with Docker:
-
-```shell
-docker run --rm -p 4566:4566 --name risingwave risingwavelabs/risingwave:v2.6.2
-```
+Ensure you have a running RisingWave instance. If you don't have one, follow the [RisingWave Quick Start guide](https://docs.risingwave.com/get-started/quickstart) to get started.
 
 ### Run Events API
 
@@ -26,13 +22,13 @@ docker run --rm -p 4566:4566 --name risingwave risingwavelabs/risingwave:v2.6.2
 
 ```shell
 docker run --rm \
-  -e EVENTS_API_RW_DSN=postgres://root:@host.docker.internal:4566/dev \
+  -e EVENTS_API_RW_DSN=postgres://root:@localhost:4566/dev \
   -p 8000:8000 \
   --name events-api \
   risingwavelabs/events-api:v0.1.3
 ```
 
-> **Note**: Use `host.docker.internal` to connect to RisingWave running on your host machine from within Docker.
+> **Note**: Replace the connection string with your own RisingWave DSN.
 
 #### Using Binary
 
@@ -50,46 +46,78 @@ EVENTS_API_RW_DSN='postgres://root:@localhost:4566/dev' ./events-api
 
 ### Basic Usage
 
-#### 1. Create a Table
+This example demonstrates how to ingest clickstream events from a web application into RisingWave for real-time analytics.
 
-First, create a table in RisingWave:
+#### 1. Create a Clickstream Table
+
+First, create a table to store clickstream events:
 
 ```shell
 curl -X POST \
-  -d 'CREATE TABLE test(id INT, name STRING)' \
+  -d 'CREATE TABLE clickstream (
+    user_id BIGINT,
+    session_id STRING,
+    page_url STRING,
+    event_type STRING,
+    timestamp TIMESTAMP,
+    referrer STRING,
+    device_type STRING
+  )' \
   http://localhost:8000/v1/sql
-
-# Wait briefly for table synchronization
-sleep 1
 ```
 
-#### 2. Insert Events
+#### 2. Ingest Clickstream Events
 
 Use POST /v1/events to ingest data. It accepts a single JSON object or NDJSON (one JSON object per line). The endpoint returns 200 OK after the data is persisted in RisingWave. It performs automatic schema/type mapping and uses buffered batching to improve throughput, providing high-performance, at-least-once delivery over HTTP.
 
-**Example: Insert JSON event**
+**Example: Insert a single page view event**
 
 ```shell
 curl -X POST \
-  -d $'{"id": 1, "name": "Peter S"}' \
-  'http://localhost:8000/v1/events?name=test'
+  -d '{"user_id": 12345, "session_id": "sess_abc123", "page_url": "/products/laptop", "event_type": "page_view", "timestamp": "2024-01-15 10:30:00", "referrer": "https://google.com", "device_type": "desktop"}' \
+  'http://localhost:8000/v1/events?name=clickstream'
 ```
 
-**Example: Insert multiple NDJSON events**
+**Example: Insert multiple events in NDJSON format**
+
+You can send multiple events in a single request using NDJSON (newline-delimited JSON). Each line must be a valid JSON object:
 
 ```shell
 curl -X POST \
-  -d $'{"id": 2, "name": "Mike W"}\n{"id": 3, "name": "Mark S"}\n{"id": 4, "name": "Dylan G"}' \
-  'http://localhost:8000/v1/events?name=test'
+  --data-binary @- \
+  'http://localhost:8000/v1/events?name=clickstream' << 'EOF'
+{"user_id": 12345, "session_id": "sess_abc123", "page_url": "/products/laptop", "event_type": "page_view", "timestamp": "2024-01-15 10:30:00", "referrer": "https://google.com", "device_type": "desktop"}
+{"user_id": 12345, "session_id": "sess_abc123", "page_url": "/products/laptop", "event_type": "click", "timestamp": "2024-01-15 10:30:15", "referrer": "", "device_type": "desktop"}
+{"user_id": 67890, "session_id": "sess_xyz789", "page_url": "/products/phone", "event_type": "page_view", "timestamp": "2024-01-15 10:31:00", "referrer": "https://twitter.com", "device_type": "mobile"}
+EOF
 ```
 
-#### 3. Query Data
+#### 3. Query and Analyze Data
 
-Query the ingested data:
+Query the ingested clickstream data:
 
 ```shell
+# View all events
 curl -X POST \
-  -d $'SELECT * FROM test' \
+  -d 'SELECT * FROM clickstream ORDER BY timestamp DESC LIMIT 10' \
+  http://localhost:8000/v1/sql
+
+# Analyze page views by device type
+curl -X POST \
+  -d 'SELECT device_type, COUNT(*) as page_views 
+      FROM clickstream 
+      WHERE event_type = '\''page_view'\''
+      GROUP BY device_type' \
+  http://localhost:8000/v1/sql
+
+# Find top pages
+curl -X POST \
+  -d 'SELECT page_url, COUNT(*) as views 
+      FROM clickstream 
+      WHERE event_type = '\''page_view'\''
+      GROUP BY page_url 
+      ORDER BY views DESC 
+      LIMIT 5' \
   http://localhost:8000/v1/sql
 ```
 
