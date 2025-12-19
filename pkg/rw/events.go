@@ -78,7 +78,7 @@ func NewEventHandler(table string, cols []Column, bim *BulkInsertManager) (*Even
 		filteredCols = append(filteredCols, c)
 	}
 
-	bio, err := bim.NewBulkInsertOperator(table, filteredCols, DefaultBIOSize) // TODO: dynamic buffer size
+	bio, err := bim.NewBulkInsertOperator(table, filteredCols)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create bulk insert operator")
 	}
@@ -102,8 +102,8 @@ func (i *EventHandler) Ingest(ctx context.Context, lines [][]byte) error {
 	return nil
 }
 
-func (i *EventHandler) Close() {
-	i.bio.Close()
+func (i *EventHandler) Close(ctx context.Context) {
+	i.bio.Close(ctx)
 }
 
 type EventService struct {
@@ -125,7 +125,7 @@ func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, 
 
 	cm.Register(func(ctx context.Context) error {
 		for _, handler := range es.handlers {
-			handler.Close()
+			handler.Close(ctx)
 		}
 		return nil
 	})
@@ -160,7 +160,7 @@ func (s *EventService) IngestEvent(ctx context.Context, name string, raw []byte)
 	return nil
 }
 
-func (s *EventService) onRelatioonUpdate(relation Relation) error {
+func (s *EventService) onRelatioonUpdate(ctx context.Context, relation Relation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -172,18 +172,18 @@ func (s *EventService) onRelatioonUpdate(relation Relation) error {
 	}
 	oldHandler, ok := s.handlers[relation.Schema+"."+relation.Name]
 	if ok {
-		oldHandler.Close()
+		oldHandler.Close(ctx)
 	}
 	s.handlers[relation.Schema+"."+relation.Name] = handler
 	return nil
 }
 
-func (s *EventService) onRelationDelete(name string) error {
+func (s *EventService) onRelationDelete(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	handler, ok := s.handlers[name]
 	if ok {
-		handler.Close()
+		handler.Close(ctx)
 		delete(s.handlers, name)
 	}
 	return nil

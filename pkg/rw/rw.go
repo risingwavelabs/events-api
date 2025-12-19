@@ -64,14 +64,19 @@ func NewRisingWave(cfg *config.Config, globalCtx *gctx.GlobalContext, cm *closer
 	}
 
 	ready := false
-	for i := 0; i < 10; i++ {
-		err = pool.Ping(dialCtx)
-		if err == nil {
-			ready = true
-			break
+	for range 10 {
+		select {
+		case <-dialCtx.Done():
+			return nil, errors.Wrap(dialCtx.Err(), "timeout connecting to risingwave")
+		default:
+			err = pool.Ping(dialCtx)
+			if err == nil {
+				ready = true
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+			log.Error("failed to connect to risingwave, retrying...", zap.Error(err))
 		}
-		time.Sleep(500 * time.Millisecond)
-		log.Error("failed to connect to risingwave, retrying...", zap.Error(err))
 	}
 
 	if !ready {

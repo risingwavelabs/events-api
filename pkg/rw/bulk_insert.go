@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	FlushInterval  = 500 * time.Millisecond
-	DefaultBIOSize = 5000
+	FlushInterval = 500 * time.Millisecond
+	MaxParamLimit = 65535
 )
 
 type Connection interface {
@@ -121,7 +121,8 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 	return o
 }
 
-func (o *BulkInsertOperator) Close() {
+func (o *BulkInsertOperator) Close(ctx context.Context) {
+	o.flush(ctx)
 	close(o.c)
 	o.conn.Release()
 }
@@ -298,7 +299,9 @@ func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, log *za
 	return m, nil
 }
 
-func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column, bufSize int) (*BulkInsertOperator, error) {
+func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column) (*BulkInsertOperator, error) {
+	bufSize := MaxParamLimit / len(cols) // max 65535 parameters in a single query
+
 	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
 
 	ctx, cancel := context.WithTimeout(b.globalCtx.Context(), 5*time.Second)

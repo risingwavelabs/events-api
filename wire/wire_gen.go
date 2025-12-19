@@ -32,11 +32,11 @@ func InitApp() (*app.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	bulkInsertManager, err := rw.NewBulkInsertManager(globalContext, risingWave, closerManager, zapLogger)
+	bulkInsertManager, err := rw.NewBulkInsertManager(globalContext, risingWave, zapLogger)
 	if err != nil {
 		return nil, err
 	}
-	eventService, err := rw.NewEventService(globalContext, risingWave, zapLogger, bulkInsertManager)
+	eventService, err := rw.NewEventService(globalContext, risingWave, zapLogger, bulkInsertManager, closerManager)
 	if err != nil {
 		return nil, err
 	}
