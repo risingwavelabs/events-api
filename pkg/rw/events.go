@@ -34,7 +34,7 @@ func NewEventParser(cols []Column) *EventParser {
 func (p *EventParser) Parse(lines [][]byte) ([][]any, error) {
 	result := make([][]any, 0, len(lines))
 	for _, line := range lines {
-		if bytes.Trim(line, " \n\r\t\r") == nil {
+		if len(bytes.Trim(line, " \n\r\t\r")) == 0 {
 			continue
 		}
 		v, err := p.extractValues(line)
