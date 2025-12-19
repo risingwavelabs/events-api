@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/risingwavelabs/events-api/pkg/closer"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
@@ -34,7 +35,7 @@ func NewEventParser(cols []Column) *EventParser {
 func (p *EventParser) Parse(lines [][]byte) ([][]any, error) {
 	result := make([][]any, 0, len(lines))
 	for _, line := range lines {
-		if bytes.Trim(line, " \n\r\t\r") == nil {
+		if len(bytes.Trim(line, " \n\r\t\r")) == 0 {
 			continue
 		}
 		v, err := p.extractValues(line)
@@ -77,7 +78,7 @@ func NewEventHandler(table string, cols []Column, bim *BulkInsertManager) (*Even
 		filteredCols = append(filteredCols, c)
 	}
 
-	bio, err := bim.NewBulkInsertOperator(table, filteredCols, DefaultBIOSize) // TODO: dynamic buffer size
+	bio, err := bim.NewBulkInsertOperator(table, filteredCols)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create bulk insert operator")
 	}
@@ -101,21 +102,33 @@ func (i *EventHandler) Ingest(ctx context.Context, lines [][]byte) error {
 	return nil
 }
 
+func (i *EventHandler) Close() {
+	i.bio.Close()
+}
+
 type EventService struct {
 	handlers map[string]*EventHandler
 	mu       sync.RWMutex
-	ready    bool
+	cm       *closer.CloserManager
 
 	bim *BulkInsertManager
 	log *zap.Logger
 }
 
-func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager) (*EventService, error) {
+func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager, cm *closer.CloserManager) (*EventService, error) {
 	es := &EventService{
 		handlers: make(map[string]*EventHandler),
 		bim:      bim,
 		log:      log.Named("event_service"),
+		cm:       cm,
 	}
+
+	cm.Register(func(ctx context.Context) error {
+		for _, handler := range es.handlers {
+			handler.Close()
+		}
+		return nil
+	})
 
 	watcher := NewWatcher(rw, gctx, log, es.onRelatioonUpdate, es.onRelationDelete)
 	if err := watcher.UpdateCache(gctx.Context()); err != nil { // initial cache update
@@ -148,8 +161,18 @@ func (s *EventService) IngestEvent(ctx context.Context, name string, raw []byte)
 }
 
 func (s *EventService) onRelatioonUpdate(relation Relation) error {
+	var (
+		oldHandler *EventHandler
+		ok         bool
+	)
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		s.mu.Unlock()
+		if oldHandler != nil && ok {
+			oldHandler.Close()
+		}
+	}()
 
 	s.log.Info("create event handler for relation", zap.Any("relation", relation))
 
@@ -157,6 +180,7 @@ func (s *EventService) onRelatioonUpdate(relation Relation) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create event handler")
 	}
+	oldHandler, ok = s.handlers[relation.Schema+"."+relation.Name]
 	s.handlers[relation.Schema+"."+relation.Name] = handler
 	return nil
 }
@@ -164,7 +188,11 @@ func (s *EventService) onRelatioonUpdate(relation Relation) error {
 func (s *EventService) onRelationDelete(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.handlers, name)
+	handler, ok := s.handlers[name]
+	if ok {
+		handler.Close()
+		delete(s.handlers, name)
+	}
 	return nil
 }
 

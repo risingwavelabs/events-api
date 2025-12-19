@@ -5,25 +5,27 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/risingwavelabs/events-api/pkg/closer"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
 
 const (
 	FlushInterval  = 500 * time.Millisecond
-	DefaultBIOSize = 5000
+	DefaultBufSize = 5000
+	MaxParamLimit  = 65535
 )
+
+var ErrBulkInsertClosed = errors.New("bulk insert operator is closed")
 
 type Connection interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-
 	Close()
 }
 
@@ -87,9 +89,7 @@ type BulkInsertOperator struct {
 	table string
 	cols  []Column
 
-	seq       int64
-	latestSeq int64
-	itemPool  sync.Pool
+	itemPool sync.Pool
 
 	c      chan *Item
 	buf    []*Item
@@ -97,9 +97,16 @@ type BulkInsertOperator struct {
 	conn   Connection
 
 	bufSize int
+	maxRows int
+
+	closed    *atomic.Bool
+	runCancel context.CancelFunc
+	inFlight  *atomic.Int32
 }
 
 func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
+	ctx, cancel := context.WithCancel(ctx)
+
 	o := &BulkInsertOperator{
 		sql:     _buildPrepareSQL(table, cols),
 		cols:    cols,
@@ -107,6 +114,7 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 		conn:    conn,
 		c:       make(chan *Item, bufSize),
 		bufSize: bufSize,
+		maxRows: MaxParamLimit / len(cols),
 		table:   table,
 		log: log.Named("bulk_insert").With(
 			zap.String("table", table),
@@ -118,6 +126,9 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 				}
 			},
 		},
+		runCancel: cancel,
+		closed:    &atomic.Bool{},
+		inFlight:  &atomic.Int32{},
 	}
 
 	o.run(ctx)
@@ -126,12 +137,23 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 }
 
 func (o *BulkInsertOperator) Close() {
-	close(o.c)
+	o.runCancel()
+}
+
+func (o *BulkInsertOperator) releaseItem(item *Item) {
+	item.rows = nil
+	o.itemPool.Put(item)
 }
 
 func (o *BulkInsertOperator) Insert(ctx context.Context, rows [][]any) error {
+	o.inFlight.Add(1)
+	defer o.inFlight.Add(-1)
+
+	if o.closed.Load() {
+		return ErrBulkInsertClosed
+	}
+
 	item := o.itemPool.Get().(*Item)
-	defer o.itemPool.Put(item)
 
 	item.rows = rows
 
@@ -144,13 +166,20 @@ func (o *BulkInsertOperator) Insert(ctx context.Context, rows [][]any) error {
 	case o.c <- item:
 	default:
 		BulkInsertBackpressureHit.Inc()
+		o.releaseItem(item)
 		return ErrInsertBackpressure
 	}
 
 	select {
 	case err := <-item.c:
+		o.releaseItem(item)
 		return err
 	case <-ctx.Done():
+		go func() {
+			// wait for the flush to avoid channel race
+			<-item.c
+			o.releaseItem(item)
+		}()
 		return ctx.Err()
 	}
 }
@@ -164,10 +193,31 @@ func (o *BulkInsertOperator) run(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
+				// block all new inserts
+				o.closed.Store(true)
+
+				// flush remaining buffer
 				if len(o.buf) > 0 {
-					o.flush(ctx)
+					o.onFlushDone(ErrBulkInsertClosed, o.buf)
 				}
-				return
+
+				// keep draining the channel until all in-flight inserts are done
+				for {
+					select {
+					case <-tick.C:
+						if o.inFlight.Load() == 0 {
+							close(o.c)
+							for item := range o.c {
+								item.c <- ErrBulkInsertClosed
+							}
+							return
+						}
+					case item, ok := <-o.c:
+						if ok {
+							item.c <- ErrBulkInsertClosed
+						}
+					}
+				}
 			case <-tick.C:
 				if len(o.buf) > 0 {
 					BulkInsertFlushByTimeout.Add(1)
@@ -182,7 +232,7 @@ func (o *BulkInsertOperator) run(ctx context.Context) {
 				}
 				o.buf = append(o.buf, args)
 				o.rowCnt += len(args.rows)
-				if o.rowCnt >= o.bufSize {
+				if o.rowCnt >= o.maxRows || len(o.buf) >= o.bufSize {
 					BulkInsertFlushBySize.Add(1)
 					o.flush(ctx)
 				}
@@ -212,10 +262,6 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 		if _, err = o.conn.Exec(c, sql, args...); err != nil {
 			o.log.Error("failed to run exec in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
 		}
-		if _, err = o.conn.Exec(c, "FLUSH"); err != nil {
-			o.log.Error("failed to run flush in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
-		}
-
 		o.onFlushDone(err, items)
 	}()
 }
@@ -266,6 +312,7 @@ func _buildInsertStatement(sql string, items []*Item, cols []Column) (string, []
 			}
 		}
 	}
+	sb.WriteString("; FLUSH;")
 
 	var args = make([]any, 0, n)
 	for _, item := range items {
@@ -286,15 +333,13 @@ var (
 
 type BulkInsertManager struct {
 	globalCtx *gctx.GlobalContext
-	cm        *closer.CloserManager
 	log       *zap.Logger
 	rw        *RisingWave
 }
 
-func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, cm *closer.CloserManager, log *zap.Logger) (*BulkInsertManager, error) {
+func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger) (*BulkInsertManager, error) {
 	m := &BulkInsertManager{
 		globalCtx: globalCtx,
-		cm:        cm,
 		log:       log.Named("bim"),
 		rw:        rw,
 	}
@@ -302,17 +347,12 @@ func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, cm *clo
 	return m, nil
 }
 
-func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column, bufSize int) (*BulkInsertOperator, error) {
+func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column) (*BulkInsertOperator, error) {
+	bufSize := DefaultBufSize
+
 	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
 
-	ctx := b.globalCtx.Context()
-
-	op := newBulkInsertOperator(ctx, table, cols, b.rw.pool, bufSize, b.log)
-
-	b.cm.Register(func(ctx context.Context) error {
-		op.Close()
-		return nil
-	})
+	op := newBulkInsertOperator(b.globalCtx.Context(), table, cols, b.rw.pool, bufSize, b.log)
 
 	return op, nil
 }

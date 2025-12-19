@@ -55,12 +55,14 @@ func (w *Watcher) Start() {
 		case <-w.gctx.Context().Done():
 			return
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(w.gctx.Context(), 5*time.Second)
-			defer cancel()
+			func() {
+				ctx, cancel := context.WithTimeout(w.gctx.Context(), 5*time.Second)
+				defer cancel()
 
-			if err := w.UpdateCache(ctx); err != nil {
-				w.log.Error("failed to update cache", zap.Error(err))
-			}
+				if err := w.UpdateCache(ctx); err != nil {
+					w.log.Error("failed to update cache", zap.Error(err))
+				}
+			}()
 		}
 	}
 }
