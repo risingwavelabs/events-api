@@ -205,14 +205,15 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 		defer cancel()
 
 		var err error
+		defer o.onFlushDone(err, items)
 		if _, err = o.conn.Exec(c, sql, args...); err != nil {
 			o.log.Error("failed to run exec in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
+			return
 		}
 		if _, err = o.conn.Exec(c, "FLUSH"); err != nil {
 			o.log.Error("failed to run flush in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
+			return
 		}
-
-		o.onFlushDone(err, items)
 	}()
 }
 
