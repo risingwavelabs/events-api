@@ -41,7 +41,7 @@ func TestIngestEvents(t *testing.T) {
 		req, err := http.NewRequestWithContext(
 			t.Context(),
 			http.MethodPost,
-			"http://localhost:8080/v1/events?name=test",
+			"http://localhost:8000/v1/events?name=test",
 			bytes.NewReader(line),
 		)
 		if err != nil {

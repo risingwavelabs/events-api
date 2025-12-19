@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,9 +18,11 @@ import (
 
 const (
 	FlushInterval  = 500 * time.Millisecond
+	DefaultBufSize = 5000
 	MaxParamLimit  = 65535
-	DefaultBufSize = 1000
 )
+
+var ErrBulkInsertClosed = errors.New("bulk insert operator is closed")
 
 type Connection interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
@@ -86,7 +89,6 @@ type BulkInsertOperator struct {
 	table string
 	cols  []Column
 
-	cancel   context.CancelFunc
 	itemPool sync.Pool
 
 	c      chan *Item
@@ -95,6 +97,11 @@ type BulkInsertOperator struct {
 	conn   Connection
 
 	bufSize int
+	maxRows int
+
+	closed    *atomic.Bool
+	runCancel context.CancelFunc
+	inFlight  *atomic.Int32
 }
 
 func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
@@ -107,6 +114,7 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 		conn:    conn,
 		c:       make(chan *Item, bufSize),
 		bufSize: bufSize,
+		maxRows: MaxParamLimit / len(cols),
 		table:   table,
 		log: log.Named("bulk_insert").With(
 			zap.String("table", table),
@@ -118,7 +126,9 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 				}
 			},
 		},
-		cancel: cancel,
+		runCancel: cancel,
+		closed:    &atomic.Bool{},
+		inFlight:  &atomic.Int32{},
 	}
 
 	o.run(ctx)
@@ -127,8 +137,7 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 }
 
 func (o *BulkInsertOperator) Close() {
-	o.cancel()
-	close(o.c)
+	o.runCancel()
 }
 
 func (o *BulkInsertOperator) releaseItem(item *Item) {
@@ -137,6 +146,13 @@ func (o *BulkInsertOperator) releaseItem(item *Item) {
 }
 
 func (o *BulkInsertOperator) Insert(ctx context.Context, rows [][]any) error {
+	o.inFlight.Add(1)
+	defer o.inFlight.Add(-1)
+
+	if o.closed.Load() {
+		return ErrBulkInsertClosed
+	}
+
 	item := o.itemPool.Get().(*Item)
 
 	item.rows = rows
@@ -177,10 +193,31 @@ func (o *BulkInsertOperator) run(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
+				// block all new inserts
+				o.closed.Store(true)
+
+				// flush remaining buffer
 				if len(o.buf) > 0 {
-					o.flush(ctx)
+					o.onFlushDone(ErrBulkInsertClosed, o.buf)
 				}
-				return
+
+				// keep draining the channel until all in-flight inserts are done
+				for {
+					select {
+					case <-tick.C:
+						if o.inFlight.Load() == 0 {
+							close(o.c)
+							for item := range o.c {
+								item.c <- ErrBulkInsertClosed
+							}
+							return
+						}
+					case item, ok := <-o.c:
+						if ok {
+							item.c <- ErrBulkInsertClosed
+						}
+					}
+				}
 			case <-tick.C:
 				if len(o.buf) > 0 {
 					BulkInsertFlushByTimeout.Add(1)
@@ -195,7 +232,7 @@ func (o *BulkInsertOperator) run(ctx context.Context) {
 				}
 				o.buf = append(o.buf, args)
 				o.rowCnt += len(args.rows)
-				if o.rowCnt >= o.bufSize {
+				if o.rowCnt >= o.maxRows || len(o.buf) >= o.bufSize {
 					BulkInsertFlushBySize.Add(1)
 					o.flush(ctx)
 				}
