@@ -127,9 +127,13 @@ func (o *BulkInsertOperator) Close(ctx context.Context) {
 	o.conn.Release()
 }
 
+func (o *BulkInsertOperator) releaseItem(item *Item) {
+	item.rows = item.rows[:0]
+	o.itemPool.Put(item)
+}
+
 func (o *BulkInsertOperator) Insert(ctx context.Context, rows [][]any) error {
 	item := o.itemPool.Get().(*Item)
-	defer o.itemPool.Put(item)
 
 	item.rows = rows
 
@@ -142,13 +146,20 @@ func (o *BulkInsertOperator) Insert(ctx context.Context, rows [][]any) error {
 	case o.c <- item:
 	default:
 		BulkInsertBackpressureHit.Inc()
+		o.releaseItem(item)
 		return ErrInsertBackpressure
 	}
 
 	select {
 	case err := <-item.c:
+		o.releaseItem(item)
 		return err
 	case <-ctx.Done():
+		go func() {
+			// wait for the flush to avoid channel race
+			<-item.c
+			o.releaseItem(item)
+		}()
 		return ctx.Err()
 	}
 }
