@@ -11,7 +11,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/risingwavelabs/events-api/pkg/closer"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
@@ -23,6 +22,7 @@ const (
 
 type Connection interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Release()
 }
 
 var BulkInsertError = promauto.NewCounter(
@@ -123,6 +123,7 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 
 func (o *BulkInsertOperator) Close() {
 	close(o.c)
+	o.conn.Release()
 }
 
 func (o *BulkInsertOperator) Insert(ctx context.Context, rows [][]any) error {
@@ -283,15 +284,13 @@ var (
 
 type BulkInsertManager struct {
 	globalCtx *gctx.GlobalContext
-	cm        *closer.CloserManager
 	log       *zap.Logger
 	rw        *RisingWave
 }
 
-func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, cm *closer.CloserManager, log *zap.Logger) (*BulkInsertManager, error) {
+func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger) (*BulkInsertManager, error) {
 	m := &BulkInsertManager{
 		globalCtx: globalCtx,
-		cm:        cm,
 		log:       log.Named("bim"),
 		rw:        rw,
 	}
@@ -311,12 +310,6 @@ func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column, b
 	}
 
 	op := newBulkInsertOperator(b.globalCtx.Context(), table, cols, conn, bufSize, b.log)
-
-	b.cm.Register(func(ctx context.Context) error {
-		op.Close()
-		conn.Release()
-		return nil
-	})
 
 	return op, nil
 }

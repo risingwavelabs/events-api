@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/risingwavelabs/events-api/pkg/closer"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
@@ -101,20 +102,33 @@ func (i *EventHandler) Ingest(ctx context.Context, lines [][]byte) error {
 	return nil
 }
 
+func (i *EventHandler) Close() {
+	i.bio.Close()
+}
+
 type EventService struct {
 	handlers map[string]*EventHandler
 	mu       sync.RWMutex
+	cm       *closer.CloserManager
 
 	bim *BulkInsertManager
 	log *zap.Logger
 }
 
-func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager) (*EventService, error) {
+func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager, cm *closer.CloserManager) (*EventService, error) {
 	es := &EventService{
 		handlers: make(map[string]*EventHandler),
 		bim:      bim,
 		log:      log.Named("event_service"),
+		cm:       cm,
 	}
+
+	cm.Register(func(ctx context.Context) error {
+		for _, handler := range es.handlers {
+			handler.Close()
+		}
+		return nil
+	})
 
 	watcher := NewWatcher(rw, gctx, log, es.onRelatioonUpdate, es.onRelationDelete)
 	if err := watcher.UpdateCache(gctx.Context()); err != nil { // initial cache update
@@ -156,6 +170,10 @@ func (s *EventService) onRelatioonUpdate(relation Relation) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create event handler")
 	}
+	oldHandler, ok := s.handlers[relation.Schema+"."+relation.Name]
+	if ok {
+		oldHandler.Close()
+	}
 	s.handlers[relation.Schema+"."+relation.Name] = handler
 	return nil
 }
@@ -163,7 +181,11 @@ func (s *EventService) onRelatioonUpdate(relation Relation) error {
 func (s *EventService) onRelationDelete(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.handlers, name)
+	handler, ok := s.handlers[name]
+	if ok {
+		handler.Close()
+		delete(s.handlers, name)
+	}
 	return nil
 }
 
