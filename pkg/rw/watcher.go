@@ -23,16 +23,16 @@ type Watcher struct {
 	mu            sync.RWMutex
 	lastKeyToDefs map[string]string
 
-	onRelationUpdate func(ctx context.Context, relation Relation) error
-	onRelationDelete func(ctx context.Context, name string) error
+	onRelationUpdate func(relation Relation) error
+	onRelationDelete func(name string) error
 }
 
 func NewWatcher(
 	rw *RisingWave,
 	gctx *gctx.GlobalContext,
 	log *zap.Logger,
-	onRelationUpdate func(ctx context.Context, relation Relation) error,
-	onRelationDelete func(ctx context.Context, name string) error,
+	onRelationUpdate func(relation Relation) error,
+	onRelationDelete func(name string) error,
 ) *Watcher {
 	return &Watcher{
 		rw:               rw,
@@ -223,7 +223,7 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 	w.mu.Lock()
 	for k, v := range updatedRelations {
 		w.lastKeyToDefs[k] = v.Definition
-		if err := w.onRelationUpdate(ctx, v); err != nil {
+		if err := w.onRelationUpdate(v); err != nil {
 			w.log.Error("failed to handle relation update", zap.String("relation", k), zap.Error(err))
 		}
 	}
@@ -231,7 +231,7 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 		if _, exist := newlyFetched[k]; !exist {
 			w.log.Info("relation deleted", zap.String("relation", k))
 			delete(w.lastKeyToDefs, k)
-			if err := w.onRelationDelete(ctx, k); err != nil {
+			if err := w.onRelationDelete(k); err != nil {
 				w.log.Error("failed to handle relation delete", zap.String("relation", k), zap.Error(err))
 			}
 		}

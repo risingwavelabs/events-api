@@ -102,7 +102,7 @@ func (i *EventHandler) Ingest(ctx context.Context, lines [][]byte) error {
 	return nil
 }
 
-func (i *EventHandler) Close(ctx context.Context) {
+func (i *EventHandler) Close() {
 	i.bio.Close()
 }
 
@@ -125,7 +125,7 @@ func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, 
 
 	cm.Register(func(ctx context.Context) error {
 		for _, handler := range es.handlers {
-			handler.Close(ctx)
+			handler.Close()
 		}
 		return nil
 	})
@@ -160,7 +160,7 @@ func (s *EventService) IngestEvent(ctx context.Context, name string, raw []byte)
 	return nil
 }
 
-func (s *EventService) onRelatioonUpdate(ctx context.Context, relation Relation) error {
+func (s *EventService) onRelatioonUpdate(relation Relation) error {
 	var (
 		oldHandler *EventHandler
 		ok         bool
@@ -170,7 +170,7 @@ func (s *EventService) onRelatioonUpdate(ctx context.Context, relation Relation)
 	defer func() {
 		s.mu.Unlock()
 		if oldHandler != nil && ok {
-			oldHandler.Close(ctx)
+			oldHandler.Close()
 		}
 	}()
 
@@ -185,12 +185,12 @@ func (s *EventService) onRelatioonUpdate(ctx context.Context, relation Relation)
 	return nil
 }
 
-func (s *EventService) onRelationDelete(ctx context.Context, name string) error {
+func (s *EventService) onRelationDelete(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	handler, ok := s.handlers[name]
 	if ok {
-		handler.Close(ctx)
+		handler.Close()
 		delete(s.handlers, name)
 	}
 	return nil
