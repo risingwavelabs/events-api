@@ -86,6 +86,7 @@ type BulkInsertOperator struct {
 	table string
 	cols  []Column
 
+	cancel   context.CancelFunc
 	itemPool sync.Pool
 
 	c      chan *Item
@@ -97,6 +98,8 @@ type BulkInsertOperator struct {
 }
 
 func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
+	ctx, cancel := context.WithCancel(ctx)
+
 	o := &BulkInsertOperator{
 		sql:     _buildPrepareSQL(table, cols),
 		cols:    cols,
@@ -115,6 +118,7 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 				}
 			},
 		},
+		cancel: cancel,
 	}
 
 	o.run(ctx)
@@ -123,6 +127,7 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 }
 
 func (o *BulkInsertOperator) Close() {
+	o.cancel()
 	close(o.c)
 }
 
@@ -168,7 +173,6 @@ func (o *BulkInsertOperator) run(ctx context.Context) {
 
 	go func() {
 		defer tick.Stop()
-		defer o.Close()
 
 		for {
 			select {

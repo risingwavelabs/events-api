@@ -161,8 +161,18 @@ func (s *EventService) IngestEvent(ctx context.Context, name string, raw []byte)
 }
 
 func (s *EventService) onRelatioonUpdate(ctx context.Context, relation Relation) error {
+	var (
+		oldHandler *EventHandler
+		ok         bool
+	)
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		s.mu.Unlock()
+		if oldHandler != nil && ok {
+			oldHandler.Close(ctx)
+		}
+	}()
 
 	s.log.Info("create event handler for relation", zap.Any("relation", relation))
 
@@ -170,10 +180,7 @@ func (s *EventService) onRelatioonUpdate(ctx context.Context, relation Relation)
 	if err != nil {
 		return errors.Wrap(err, "failed to create event handler")
 	}
-	oldHandler, ok := s.handlers[relation.Schema+"."+relation.Name]
-	if ok {
-		oldHandler.Close(ctx)
-	}
+	oldHandler, ok = s.handlers[relation.Schema+"."+relation.Name]
 	s.handlers[relation.Schema+"."+relation.Name] = handler
 	return nil
 }
