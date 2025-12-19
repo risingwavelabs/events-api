@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	FlushInterval = 500 * time.Millisecond
-	MaxParamLimit = 65535
+	FlushInterval  = 500 * time.Millisecond
+	MaxParamLimit  = 65535
+	DefaultBufSize = 1000
 )
 
 type Connection interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-	Release()
+	Close()
 }
 
 var BulkInsertError = promauto.NewCounter(
@@ -121,14 +122,12 @@ func newBulkInsertOperator(ctx context.Context, table string, cols []Column, con
 	return o
 }
 
-func (o *BulkInsertOperator) Close(ctx context.Context) {
-	o.flush(ctx)
+func (o *BulkInsertOperator) Close() {
 	close(o.c)
-	o.conn.Release()
 }
 
 func (o *BulkInsertOperator) releaseItem(item *Item) {
-	item.rows = item.rows[:0]
+	item.rows = nil
 	o.itemPool.Put(item)
 }
 
@@ -169,6 +168,7 @@ func (o *BulkInsertOperator) run(ctx context.Context) {
 
 	go func() {
 		defer tick.Stop()
+		defer o.Close()
 
 		for {
 			select {
@@ -218,15 +218,10 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 		defer cancel()
 
 		var err error
-		defer o.onFlushDone(err, items)
 		if _, err = o.conn.Exec(c, sql, args...); err != nil {
 			o.log.Error("failed to run exec in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
-			return
 		}
-		if _, err = o.conn.Exec(c, "FLUSH"); err != nil {
-			o.log.Error("failed to run flush in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
-			return
-		}
+		o.onFlushDone(err, items)
 	}()
 }
 
@@ -276,6 +271,7 @@ func _buildInsertStatement(sql string, items []*Item, cols []Column) (string, []
 			}
 		}
 	}
+	sb.WriteString("; FLUSH;")
 
 	var args = make([]any, 0, n)
 	for _, item := range items {
@@ -311,19 +307,11 @@ func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, log *za
 }
 
 func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column) (*BulkInsertOperator, error) {
-	bufSize := MaxParamLimit / len(cols) // max 65535 parameters in a single query
+	bufSize := DefaultBufSize
 
 	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
 
-	ctx, cancel := context.WithTimeout(b.globalCtx.Context(), 5*time.Second)
-	defer cancel()
-
-	conn, err := b.rw.pool.Acquire(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to acquire connection for bulk insert operator")
-	}
-
-	op := newBulkInsertOperator(b.globalCtx.Context(), table, cols, conn, bufSize, b.log)
+	op := newBulkInsertOperator(b.globalCtx.Context(), table, cols, b.rw.pool, bufSize, b.log)
 
 	return op, nil
 }

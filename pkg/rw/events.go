@@ -103,7 +103,7 @@ func (i *EventHandler) Ingest(ctx context.Context, lines [][]byte) error {
 }
 
 func (i *EventHandler) Close(ctx context.Context) {
-	i.bio.Close(ctx)
+	i.bio.Close()
 }
 
 type EventService struct {
