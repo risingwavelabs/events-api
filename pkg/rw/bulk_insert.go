@@ -23,8 +23,6 @@ const (
 
 type Connection interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-
-	Close()
 }
 
 var BulkInsertError = promauto.NewCounter(
@@ -87,9 +85,7 @@ type BulkInsertOperator struct {
 	table string
 	cols  []Column
 
-	seq       int64
-	latestSeq int64
-	itemPool  sync.Pool
+	itemPool sync.Pool
 
 	c      chan *Item
 	buf    []*Item
@@ -305,12 +301,19 @@ func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, cm *clo
 func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column, bufSize int) (*BulkInsertOperator, error) {
 	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
 
-	ctx := b.globalCtx.Context()
+	ctx, cancel := context.WithTimeout(b.globalCtx.Context(), 5*time.Second)
+	defer cancel()
 
-	op := newBulkInsertOperator(ctx, table, cols, b.rw.pool, bufSize, b.log)
+	conn, err := b.rw.pool.Acquire(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to acquire connection for bulk insert operator")
+	}
+
+	op := newBulkInsertOperator(b.globalCtx.Context(), table, cols, conn, bufSize, b.log)
 
 	b.cm.Register(func(ctx context.Context) error {
 		op.Close()
+		conn.Release()
 		return nil
 	})
 

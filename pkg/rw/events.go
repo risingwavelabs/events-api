@@ -104,7 +104,6 @@ func (i *EventHandler) Ingest(ctx context.Context, lines [][]byte) error {
 type EventService struct {
 	handlers map[string]*EventHandler
 	mu       sync.RWMutex
-	ready    bool
 
 	bim *BulkInsertManager
 	log *zap.Logger
