@@ -25,7 +25,7 @@ docker run --rm \
   -e EVENTS_API_RW_DSN=postgres://root:@localhost:4566/dev \
   -p 8000:8000 \
   --name events-api \
-  risingwavelabs/events-api:v0.1.3
+  risingwavelabs/events-api:v0.1.4
 ```
 
 > **Note**: Replace the connection string with your own RisingWave DSN.
