@@ -8,10 +8,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
+	"github.com/risingwavelabs/events-api/pkg/pgb"
 	"go.uber.org/zap"
 )
-
-type RelationType string
 
 const watcherPollInterval = 1 * time.Second
 
@@ -23,7 +22,7 @@ type Watcher struct {
 	mu            sync.RWMutex
 	lastKeyToDefs map[string]string
 
-	onRelationUpdate func(relation Relation) error
+	onRelationUpdate func(relation pgb.Relation) error
 	onRelationDelete func(name string) error
 }
 
@@ -31,7 +30,7 @@ func NewWatcher(
 	rw *RisingWave,
 	gctx *gctx.GlobalContext,
 	log *zap.Logger,
-	onRelationUpdate func(relation Relation) error,
+	onRelationUpdate func(relation pgb.Relation) error,
 	onRelationDelete func(name string) error,
 ) *Watcher {
 	return &Watcher{
@@ -67,41 +66,6 @@ func (w *Watcher) Start() {
 	}
 }
 
-type Column struct {
-	// IsHidden Whether the column is hidden
-	IsHidden bool `json:"isHidden"`
-
-	// IsPrimaryKey Whether the column is a primary key
-	IsPrimaryKey bool `json:"isPrimaryKey"`
-
-	// Name Name of the column
-	Name string `json:"name"`
-
-	// Type Data type of the column
-	Type string `json:"type"`
-
-	isArray bool
-}
-
-type Relation struct {
-	// ID Unique identifier of the table
-	ID int32 `json:"ID"`
-
-	// Columns List of columns in the table
-	Columns []Column `json:"columns"`
-
-	// Name Name of the table
-	Name string `json:"name"`
-
-	Definition string `json:"definition"`
-
-	// Schema Name of the schema this table belongs to
-	Schema string `json:"schema"`
-
-	// Type Type of the relation
-	Type RelationType `json:"type"`
-}
-
 const getRelationsSQL = `SELECT
 	rw_relations.id,
 	rw_schemas.name AS schema,
@@ -135,14 +99,14 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 	}
 	defer rows.Close()
 
-	updatedRelations := make(map[string]Relation)
+	updatedRelations := make(map[string]pgb.Relation)
 
 	newlyFetched := make(map[string]struct{})
 	for rows.Next() {
 		var (
 			relationID   int32
 			relationName string
-			relationType RelationType
+			relationType pgb.RelationType
 			definition   string
 			schema       string
 		)
@@ -151,7 +115,7 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 			return errors.Wrap(err, "failed to scan relation row")
 		}
 
-		relation := Relation{
+		relation := pgb.Relation{
 			ID:         relationID,
 			Schema:     schema,
 			Name:       relationName,
@@ -205,12 +169,12 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 		key := schema + "." + relationName
 		relation, exists := updatedRelations[key]
 		if exists {
-			relation.Columns = append(relation.Columns, Column{
+			relation.Columns = append(relation.Columns, pgb.Column{
 				Name:         columnName,
 				Type:         columnType,
 				IsPrimaryKey: isPrimaryKey,
 				IsHidden:     isHidden,
-				isArray:      strings.HasSuffix(columnType, "[]"),
+				IsArray:      strings.HasSuffix(columnType, "[]"),
 			})
 			updatedRelations[key] = relation
 		}

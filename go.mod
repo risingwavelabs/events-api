@@ -1,10 +1,10 @@
 module github.com/risingwavelabs/events-api
 
-go 1.25.5
+go 1.25.6
 
 require (
-	github.com/cloudcarver/anclax v0.7.1
-	github.com/gofiber/fiber/v2 v2.52.10
+	github.com/cloudcarver/anclax v0.9.0
+	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/google/wire v0.7.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/oapi-codegen/runtime v1.1.1

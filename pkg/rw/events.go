@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/risingwavelabs/events-api/pkg/closer"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
+	"github.com/risingwavelabs/events-api/pkg/pgb"
 	"go.uber.org/zap"
 )
 
@@ -18,7 +19,7 @@ type EventParser struct {
 	cType map[string]string
 }
 
-func NewEventParser(cols []Column) *EventParser {
+func NewEventParser(cols []pgb.Column) *EventParser {
 	cidx := make(map[string]int)
 	cType := make(map[string]string)
 	for i, col := range cols {
@@ -62,12 +63,12 @@ func (p *EventParser) extractValues(line []byte) ([]any, error) {
 }
 
 type EventHandler struct {
-	bio    *BulkInsertOperator
+	bio    *pgb.BulkInsertOperator
 	parser *EventParser
 }
 
-func NewEventHandler(table string, cols []Column, bim *BulkInsertManager) (*EventHandler, error) {
-	filteredCols := []Column{}
+func NewEventHandler(table string, cols []pgb.Column, pgbm *pgb.Manager) (*EventHandler, error) {
+	filteredCols := []pgb.Column{}
 	for _, c := range cols {
 		if c.Name == "_row_id" {
 			continue
@@ -78,7 +79,7 @@ func NewEventHandler(table string, cols []Column, bim *BulkInsertManager) (*Even
 		filteredCols = append(filteredCols, c)
 	}
 
-	bio, err := bim.NewBulkInsertOperator(table, filteredCols)
+	bio, err := pgbm.NewBulkInsertOperator(table, filteredCols)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create bulk insert operator")
 	}
@@ -111,14 +112,19 @@ type EventService struct {
 	mu       sync.RWMutex
 	cm       *closer.CloserManager
 
-	bim *BulkInsertManager
+	bim *pgb.Manager
 	log *zap.Logger
 }
 
-func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, bim *BulkInsertManager, cm *closer.CloserManager) (*EventService, error) {
+func NewEventService(gctx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger, cm *closer.CloserManager) (*EventService, error) {
+	Manager, err := pgb.NewManager(gctx.Context(), rw.pool, log)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create bulk insert manager")
+	}
+
 	es := &EventService{
 		handlers: make(map[string]*EventHandler),
-		bim:      bim,
+		bim:      Manager,
 		log:      log.Named("event_service"),
 		cm:       cm,
 	}
@@ -160,7 +166,7 @@ func (s *EventService) IngestEvent(ctx context.Context, name string, raw []byte)
 	return nil
 }
 
-func (s *EventService) onRelatioonUpdate(relation Relation) error {
+func (s *EventService) onRelatioonUpdate(relation pgb.Relation) error {
 	var (
 		oldHandler *EventHandler
 		ok         bool
