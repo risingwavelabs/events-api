@@ -4,14 +4,50 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
+func createTestTable(t *testing.T) {
+	t.Helper()
+
+	sql := `CREATE TABLE IF NOT EXISTS test (
+		i DOUBLE PRECISION,
+		b BOOLEAN,
+		s STRING,
+		f DOUBLE PRECISION,
+		a STRING[]
+	)`
+
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"http://localhost:8000/v1/sql",
+		bytes.NewBufferString(sql),
+	)
+	require.NoError(t, err)
+
+	res, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("failed to create test table: status=%d body=%s", res.StatusCode, string(body))
+	}
+
+	// Wait for table watcher refresh before ingesting events.
+	time.Sleep(2 * time.Second)
+}
+
 func TestIngestEvents(t *testing.T) {
+	createTestTable(t)
+
 	var (
 		// number of requests
 		N = 1000
@@ -64,6 +100,7 @@ func TestIngestEvents(t *testing.T) {
 				t.Log("failed to send request:", err.Error())
 				return
 			}
+			defer res.Body.Close()
 			if res.StatusCode != http.StatusOK {
 				t.Log("unexpected status code:", res.StatusCode)
 				return

@@ -22,7 +22,6 @@ func InitApp() (*app.App, error) {
 		config.NewConfig,
 		gctx.New,
 		rw.NewRisingWave,
-		rw.NewBulkInsertManager,
 		rw.NewEventService,
 		closer.NewCloserManager,
 	)

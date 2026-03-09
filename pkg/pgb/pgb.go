@@ -1,4 +1,4 @@
-package rw
+package pgb
 
 import (
 	"context"
@@ -9,12 +9,49 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/risingwavelabs/events-api/pkg/gctx"
 	"go.uber.org/zap"
 )
+
+type RelationType string
+
+type Column struct {
+	// IsHidden Whether the column is hidden
+	IsHidden bool `json:"isHidden"`
+
+	// IsPrimaryKey Whether the column is a primary key
+	IsPrimaryKey bool `json:"isPrimaryKey"`
+
+	// Name Name of the column
+	Name string `json:"name"`
+
+	// Type Data type of the column
+	Type string `json:"type"`
+
+	IsArray bool
+}
+
+type Relation struct {
+	// ID Unique identifier of the table
+	ID int32 `json:"ID"`
+
+	// Columns List of columns in the table
+	Columns []Column `json:"columns"`
+
+	// Name Name of the table
+	Name string `json:"name"`
+
+	Definition string `json:"definition"`
+
+	// Schema Name of the schema this table belongs to
+	Schema string `json:"schema"`
+
+	// Type Type of the relation
+	Type RelationType `json:"type"`
+}
 
 const (
 	FlushInterval  = 500 * time.Millisecond
@@ -331,28 +368,48 @@ var (
 	ErrInsertBackpressure    = errors.New("insert backpressure")
 )
 
-type BulkInsertManager struct {
-	globalCtx *gctx.GlobalContext
-	log       *zap.Logger
-	rw        *RisingWave
+type Manager struct {
+	ctx context.Context
+	log *zap.Logger
+	p   *pgxpool.Pool
+
+	mu  sync.Mutex
+	ops []*BulkInsertOperator
 }
 
-func NewBulkInsertManager(globalCtx *gctx.GlobalContext, rw *RisingWave, log *zap.Logger) (*BulkInsertManager, error) {
-	m := &BulkInsertManager{
-		globalCtx: globalCtx,
-		log:       log.Named("bim"),
-		rw:        rw,
+func NewManager(ctx context.Context, p *pgxpool.Pool, log *zap.Logger) (*Manager, error) {
+	m := &Manager{
+		ctx: ctx,
+		log: log.Named("bim"),
+		p:   p,
 	}
+
+	go func() {
+		<-ctx.Done()
+		log.Info("bulk insert manager received ctx.Done, closing")
+		m.Close()
+	}()
 
 	return m, nil
 }
 
-func (b *BulkInsertManager) NewBulkInsertOperator(table string, cols []Column) (*BulkInsertOperator, error) {
+func (b *Manager) NewBulkInsertOperator(table string, cols []Column) (*BulkInsertOperator, error) {
+
 	bufSize := DefaultBufSize
 
 	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
 
-	op := newBulkInsertOperator(b.globalCtx.Context(), table, cols, b.rw.pool, bufSize, b.log)
+	op := newBulkInsertOperator(b.ctx, table, cols, b.p, bufSize, b.log)
+
+	b.mu.Lock()
+	b.ops = append(b.ops, op)
+	b.mu.Unlock()
 
 	return op, nil
+}
+
+func (b *Manager) Close() {
+	for _, op := range b.ops {
+		op.Close()
+	}
 }
