@@ -22,6 +22,9 @@ type Column struct {
 	// IsHidden Whether the column is hidden
 	IsHidden bool `json:"isHidden"`
 
+	// IsGenerated Whether the column is generated
+	IsGenerated bool `json:"isGenerated"`
+
 	// IsPrimaryKey Whether the column is a primary key
 	IsPrimaryKey bool `json:"isPrimaryKey"`
 
