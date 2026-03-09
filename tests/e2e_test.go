@@ -2,6 +2,8 @@ package tests
 
 import (
 	"bytes"
+	"context"
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,19 +15,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func createTestTable(t *testing.T) {
+func randomTableName(prefix string) string {
+	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+	buf := make([]byte, 8)
+	_, _ = crand.Read(buf)
+	for i := range buf {
+		buf[i] = letters[int(buf[i])%len(letters)]
+	}
+
+	return fmt.Sprintf("%s_%s", prefix, string(buf))
+}
+
+func mustExecSQL(t *testing.T, sql string, action string) []byte {
 	t.Helper()
 
-	sql := `CREATE TABLE IF NOT EXISTS test (
-		i DOUBLE PRECISION,
-		b BOOLEAN,
-		s STRING,
-		f DOUBLE PRECISION,
-		a STRING[]
-	)`
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	req, err := http.NewRequestWithContext(
-		t.Context(),
+		ctx,
 		http.MethodPost,
 		"http://localhost:8000/v1/sql",
 		bytes.NewBufferString(sql),
@@ -36,17 +45,66 @@ func createTestTable(t *testing.T) {
 	require.NoError(t, err)
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		t.Fatalf("failed to create test table: status=%d body=%s", res.StatusCode, string(body))
-	}
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+
+	require.Equalf(t, http.StatusOK, res.StatusCode, "failed to %s: status=%d body=%s", action, res.StatusCode, string(body))
+	return body
+}
+
+func dropTable(t *testing.T, tableName string) {
+	t.Helper()
+	mustExecSQL(t, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName), "drop test table")
+}
+
+func initTestTable(t *testing.T) string {
+	t.Helper()
+
+	tableName := randomTableName("test")
+	dropTable(t, tableName)
+
+	createSQL := fmt.Sprintf(`CREATE TABLE %s (
+		i DOUBLE PRECISION,
+		b BOOLEAN,
+		s STRING,
+		f DOUBLE PRECISION,
+		a STRING[]
+	)`, tableName)
+
+	mustExecSQL(t, createSQL, "create test table")
+	t.Cleanup(func() {
+		dropTable(t, tableName)
+	})
 
 	// Wait for table watcher refresh before ingesting events.
 	time.Sleep(2 * time.Second)
+	return tableName
+}
+
+func initGeneratedColumnTestTable(t *testing.T) string {
+	t.Helper()
+
+	tableName := randomTableName("test_events_generated")
+	dropTable(t, tableName)
+
+	createSQL := fmt.Sprintf(`CREATE TABLE %s (
+		id INT PRIMARY KEY,
+		data VARCHAR,
+		ingested_at TIMESTAMPTZ AS (proctime())
+	)`, tableName)
+
+	mustExecSQL(t, createSQL, "create generated-column test table")
+	t.Cleanup(func() {
+		dropTable(t, tableName)
+	})
+
+	// Wait for table watcher refresh before ingesting events.
+	time.Sleep(3 * time.Second)
+	return tableName
 }
 
 func TestIngestEvents(t *testing.T) {
-	createTestTable(t)
+	tableName := initTestTable(t)
 
 	var (
 		// number of requests
@@ -77,7 +135,7 @@ func TestIngestEvents(t *testing.T) {
 		req, err := http.NewRequestWithContext(
 			t.Context(),
 			http.MethodPost,
-			"http://localhost:8000/v1/events?name=test",
+			"http://localhost:8000/v1/events?name="+tableName,
 			bytes.NewReader(line),
 		)
 		if err != nil {
@@ -109,57 +167,35 @@ func TestIngestEvents(t *testing.T) {
 	}
 
 	wg.Wait()
+
+	countBody := mustExecSQL(t, fmt.Sprintf("SELECT COUNT(*) AS cnt FROM %s;", tableName), "count rows")
+	var countResp struct {
+		Error *string `json:"error"`
+		Rows  []struct {
+			Cnt int64 `json:"cnt"`
+		} `json:"rows"`
+	}
+	require.NoError(t, json.Unmarshal(countBody, &countResp))
+	if countResp.Error != nil {
+		t.Fatalf("count query returned error: %s", *countResp.Error)
+	}
+	require.Len(t, countResp.Rows, 1)
+	require.Equal(t, int64(N*L), countResp.Rows[0].Cnt, "row count mismatch")
 }
 
 func TestIngestEventsWithGeneratedColumn(t *testing.T) {
-	dropSQL := `DROP TABLE IF EXISTS test_events_generated`
+	tableName := initGeneratedColumnTestTable(t)
+
+	insertPayload := []byte(`{"id": 1, "data": "test"}`)
 	req, err := http.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		"http://localhost:8000/v1/sql",
-		bytes.NewBufferString(dropSQL),
-	)
-	require.NoError(t, err)
-
-	res, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer res.Body.Close()
-	require.Equal(t, http.StatusOK, res.StatusCode)
-
-	createSQL := `CREATE TABLE test_events_generated (
-		id INT PRIMARY KEY,
-		data VARCHAR,
-		ingested_at TIMESTAMPTZ AS (proctime())
-	)`
-	req, err = http.NewRequestWithContext(
-		t.Context(),
-		http.MethodPost,
-		"http://localhost:8000/v1/sql",
-		bytes.NewBufferString(createSQL),
-	)
-	require.NoError(t, err)
-
-	res, err = http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		t.Fatalf("failed to create generated-column table: status=%d body=%s", res.StatusCode, string(body))
-	}
-
-	// Wait for table watcher refresh before ingesting events.
-	time.Sleep(3 * time.Second)
-
-	insertPayload := []byte(`{"id": 1, "data": "test"}`)
-	req, err = http.NewRequestWithContext(
-		t.Context(),
-		http.MethodPost,
-		"http://localhost:8000/v1/events?name=test_events_generated",
+		"http://localhost:8000/v1/events?name="+tableName,
 		bytes.NewReader(insertPayload),
 	)
 	require.NoError(t, err)
 
-	res, err = http.DefaultClient.Do(req)
+	res, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer res.Body.Close()
 
