@@ -67,9 +67,15 @@ type EventHandler struct {
 	parser *EventParser
 }
 
-func NewEventHandler(table string, cols []pgb.Column, pgbm *pgb.Manager) (*EventHandler, error) {
-	filteredCols := []pgb.Column{}
+func filterInsertableColumns(cols []pgb.Column) []pgb.Column {
+	filteredCols := make([]pgb.Column, 0, len(cols))
 	for _, c := range cols {
+		if c.IsGenerated {
+			continue
+		}
+		if c.IsHidden {
+			continue
+		}
 		if c.Name == "_row_id" {
 			continue
 		}
@@ -78,6 +84,11 @@ func NewEventHandler(table string, cols []pgb.Column, pgbm *pgb.Manager) (*Event
 		}
 		filteredCols = append(filteredCols, c)
 	}
+	return filteredCols
+}
+
+func NewEventHandler(table string, cols []pgb.Column, pgbm *pgb.Manager) (*EventHandler, error) {
+	filteredCols := filterInsertableColumns(cols)
 
 	bio, err := pgbm.NewBulkInsertOperator(table, filteredCols)
 	if err != nil {

@@ -85,7 +85,8 @@ const getColumnsSQL = `SELECT
     rw_columns.name            AS column_name,
     rw_columns.data_type       AS column_type,
     rw_columns.is_primary_key  AS is_primary_key,
-	rw_columns.is_hidden       AS is_hidden
+	rw_columns.is_hidden       AS is_hidden,
+	rw_columns.is_generated    AS is_generated
 FROM rw_columns
 JOIN rw_relations ON rw_relations.id = rw_columns.relation_id
 JOIN rw_schemas   ON rw_schemas.id = rw_relations.schema_id
@@ -160,9 +161,10 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 			columnType   string
 			isPrimaryKey bool
 			isHidden     bool
+			isGenerated  bool
 		)
 
-		if err := rows.Scan(&relationID, &schema, &relationName, &relationType, &columnName, &columnType, &isPrimaryKey, &isHidden); err != nil {
+		if err := rows.Scan(&relationID, &schema, &relationName, &relationType, &columnName, &columnType, &isPrimaryKey, &isHidden, &isGenerated); err != nil {
 			return errors.Wrap(err, "failed to scan relation row")
 		}
 
@@ -174,6 +176,7 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 				Type:         columnType,
 				IsPrimaryKey: isPrimaryKey,
 				IsHidden:     isHidden,
+				IsGenerated:  isGenerated,
 				IsArray:      strings.HasSuffix(columnType, "[]"),
 			})
 			updatedRelations[key] = relation

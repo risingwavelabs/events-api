@@ -110,3 +110,61 @@ func TestIngestEvents(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestIngestEventsWithGeneratedColumn(t *testing.T) {
+	dropSQL := `DROP TABLE IF EXISTS test_events_generated`
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"http://localhost:8000/v1/sql",
+		bytes.NewBufferString(dropSQL),
+	)
+	require.NoError(t, err)
+
+	res, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer res.Body.Close()
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	createSQL := `CREATE TABLE test_events_generated (
+		id INT PRIMARY KEY,
+		data VARCHAR,
+		ingested_at TIMESTAMPTZ AS (proctime())
+	)`
+	req, err = http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"http://localhost:8000/v1/sql",
+		bytes.NewBufferString(createSQL),
+	)
+	require.NoError(t, err)
+
+	res, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("failed to create generated-column table: status=%d body=%s", res.StatusCode, string(body))
+	}
+
+	// Wait for table watcher refresh before ingesting events.
+	time.Sleep(3 * time.Second)
+
+	insertPayload := []byte(`{"id": 1, "data": "test"}`)
+	req, err = http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"http://localhost:8000/v1/events?name=test_events_generated",
+		bytes.NewReader(insertPayload),
+	)
+	require.NoError(t, err)
+
+	res, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+	require.Equalf(t, http.StatusOK, res.StatusCode, "failed to ingest event for generated-column table: body=%s", string(body))
+	require.Equal(t, "OK", string(bytes.TrimSpace(body)))
+}
