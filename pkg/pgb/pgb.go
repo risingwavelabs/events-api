@@ -16,44 +16,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type RelationType string
-
 type Column struct {
-	// IsHidden Whether the column is hidden
-	IsHidden bool `json:"isHidden"`
-
-	// IsGenerated Whether the column is generated
-	IsGenerated bool `json:"isGenerated"`
-
-	// IsPrimaryKey Whether the column is a primary key
-	IsPrimaryKey bool `json:"isPrimaryKey"`
-
 	// Name Name of the column
 	Name string `json:"name"`
 
 	// Type Data type of the column
 	Type string `json:"type"`
-
-	IsArray bool
-}
-
-type Relation struct {
-	// ID Unique identifier of the table
-	ID int32 `json:"ID"`
-
-	// Columns List of columns in the table
-	Columns []Column `json:"columns"`
-
-	// Name Name of the table
-	Name string `json:"name"`
-
-	Definition string `json:"definition"`
-
-	// Schema Name of the schema this table belongs to
-	Schema string `json:"schema"`
-
-	// Type Type of the relation
-	Type RelationType `json:"type"`
 }
 
 const (

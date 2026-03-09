@@ -19,7 +19,7 @@ type EventParser struct {
 	cType map[string]string
 }
 
-func NewEventParser(cols []pgb.Column) *EventParser {
+func NewEventParser(cols []Column) *EventParser {
 	cidx := make(map[string]int)
 	cType := make(map[string]string)
 	for i, col := range cols {
@@ -67,8 +67,8 @@ type EventHandler struct {
 	parser *EventParser
 }
 
-func filterInsertableColumns(cols []pgb.Column) []pgb.Column {
-	filteredCols := make([]pgb.Column, 0, len(cols))
+func filterInsertableColumns(cols []Column) []Column {
+	filteredCols := make([]Column, 0, len(cols))
 	for _, c := range cols {
 		if c.IsGenerated {
 			continue
@@ -87,10 +87,10 @@ func filterInsertableColumns(cols []pgb.Column) []pgb.Column {
 	return filteredCols
 }
 
-func NewEventHandler(table string, cols []pgb.Column, pgbm *pgb.Manager) (*EventHandler, error) {
+func NewEventHandler(table string, cols []Column, pgbm *pgb.Manager) (*EventHandler, error) {
 	filteredCols := filterInsertableColumns(cols)
 
-	bio, err := pgbm.NewBulkInsertOperator(table, filteredCols)
+	bio, err := pgbm.NewBulkInsertOperator(table, toPGBColumns(filteredCols))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create bulk insert operator")
 	}
@@ -177,7 +177,7 @@ func (s *EventService) IngestEvent(ctx context.Context, name string, raw []byte)
 	return nil
 }
 
-func (s *EventService) onRelatioonUpdate(relation pgb.Relation) error {
+func (s *EventService) onRelatioonUpdate(relation Relation) error {
 	var (
 		oldHandler *EventHandler
 		ok         bool
