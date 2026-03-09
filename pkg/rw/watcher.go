@@ -8,7 +8,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
-	"github.com/risingwavelabs/events-api/pkg/pgb"
 	"go.uber.org/zap"
 )
 
@@ -22,7 +21,7 @@ type Watcher struct {
 	mu            sync.RWMutex
 	lastKeyToDefs map[string]string
 
-	onRelationUpdate func(relation pgb.Relation) error
+	onRelationUpdate func(relation Relation) error
 	onRelationDelete func(name string) error
 }
 
@@ -30,7 +29,7 @@ func NewWatcher(
 	rw *RisingWave,
 	gctx *gctx.GlobalContext,
 	log *zap.Logger,
-	onRelationUpdate func(relation pgb.Relation) error,
+	onRelationUpdate func(relation Relation) error,
 	onRelationDelete func(name string) error,
 ) *Watcher {
 	return &Watcher{
@@ -100,14 +99,14 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 	}
 	defer rows.Close()
 
-	updatedRelations := make(map[string]pgb.Relation)
+	updatedRelations := make(map[string]Relation)
 
 	newlyFetched := make(map[string]struct{})
 	for rows.Next() {
 		var (
 			relationID   int32
 			relationName string
-			relationType pgb.RelationType
+			relationType RelationType
 			definition   string
 			schema       string
 		)
@@ -116,7 +115,7 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 			return errors.Wrap(err, "failed to scan relation row")
 		}
 
-		relation := pgb.Relation{
+		relation := Relation{
 			ID:         relationID,
 			Schema:     schema,
 			Name:       relationName,
@@ -171,7 +170,7 @@ func (w *Watcher) UpdateCache(ctx context.Context) error {
 		key := schema + "." + relationName
 		relation, exists := updatedRelations[key]
 		if exists {
-			relation.Columns = append(relation.Columns, pgb.Column{
+			relation.Columns = append(relation.Columns, Column{
 				Name:         columnName,
 				Type:         columnType,
 				IsPrimaryKey: isPrimaryKey,

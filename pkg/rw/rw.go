@@ -14,7 +14,6 @@ import (
 	"github.com/risingwavelabs/events-api/pkg/closer"
 	"github.com/risingwavelabs/events-api/pkg/config"
 	"github.com/risingwavelabs/events-api/pkg/gctx"
-	"github.com/risingwavelabs/events-api/pkg/pgb"
 	"go.uber.org/zap"
 )
 
@@ -135,7 +134,7 @@ type DB interface {
 
 type Result struct {
 	RowsAffected int64
-	Columns      []pgb.Column
+	Columns      []Column
 	Rows         []map[string]any
 }
 
@@ -154,9 +153,9 @@ func query(ctx context.Context, db DB, query string, backgroundDDL bool) (*Resul
 	defer rows.Close()
 
 	fieldDescs := rows.FieldDescriptions()
-	columns := make([]pgb.Column, len(fieldDescs))
+	columns := make([]Column, len(fieldDescs))
 	for i, d := range fieldDescs {
-		columns[i] = pgb.Column{
+		columns[i] = Column{
 			Name: string(d.Name),
 			Type: getDataTypeName(d.DataTypeOID),
 		}

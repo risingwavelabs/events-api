@@ -3,12 +3,11 @@ package rw
 import (
 	"testing"
 
-	"github.com/risingwavelabs/events-api/pkg/pgb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFilterInsertableColumns(t *testing.T) {
-	cols := []pgb.Column{
+	cols := []Column{
 		{Name: "id", Type: "integer"},
 		{Name: "_row_id", Type: "integer"},
 		{Name: "_rw_timestamp", Type: "timestamptz", IsHidden: true},
