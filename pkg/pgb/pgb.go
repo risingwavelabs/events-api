@@ -92,10 +92,11 @@ type Item struct {
 }
 
 type BulkInsertOperator struct {
-	log   *zap.Logger
-	sql   string
-	table string
-	cols  []Column
+	log      *zap.Logger
+	sql      string
+	table    string
+	cols     []Column
+	endStmts string
 
 	itemPool sync.Pool
 
@@ -112,18 +113,19 @@ type BulkInsertOperator struct {
 	inFlight  *atomic.Int32
 }
 
-func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger) *BulkInsertOperator {
+func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger, endStmts ...string) *BulkInsertOperator {
 	ctx, cancel := context.WithCancel(ctx)
 
 	o := &BulkInsertOperator{
-		sql:     _buildPrepareSQL(table, cols),
-		cols:    cols,
-		buf:     make([]*Item, 0, bufSize),
-		conn:    conn,
-		c:       make(chan *Item, bufSize),
-		bufSize: bufSize,
-		maxRows: MaxParamLimit / len(cols),
-		table:   table,
+		sql:      _buildPrepareSQL(table, cols),
+		cols:     cols,
+		endStmts: strings.Join(endStmts, "; "),
+		buf:      make([]*Item, 0, bufSize),
+		conn:     conn,
+		c:        make(chan *Item, bufSize),
+		bufSize:  bufSize,
+		maxRows:  MaxParamLimit / len(cols),
+		table:    table,
 		log: log.Named("bulk_insert").With(
 			zap.String("table", table),
 		),
@@ -254,7 +256,7 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 	if len(o.buf) == 0 {
 		return
 	}
-	sql, args := _buildInsertStatement(o.sql, o.buf, o.cols)
+	sql, args := _buildInsertStatement(o.sql, o.buf, o.cols, o.endStmts)
 	items := make([]*Item, len(o.buf))
 	copy(items, o.buf)
 	o.buf = o.buf[:0]
@@ -294,7 +296,7 @@ func _buildPrepareSQL(table string, cols []Column) string {
 	return "INSERT INTO " + table + " (" + strings.Join(names, ", ") + ") VALUES "
 }
 
-func _buildInsertStatement(sql string, items []*Item, cols []Column) (string, []any) {
+func _buildInsertStatement(sql string, items []*Item, cols []Column, endStmts string) (string, []any) {
 	n := 0
 	for _, item := range items {
 		n += len(item.rows) * len(cols)
@@ -320,7 +322,11 @@ func _buildInsertStatement(sql string, items []*Item, cols []Column) (string, []
 			}
 		}
 	}
-	sb.WriteString("; FLUSH;")
+	if endStmts != "" {
+		sb.WriteString(";")
+		sb.WriteString(endStmts)
+		sb.WriteString(";")
+	}
 
 	var args = make([]any, 0, n)
 	for _, item := range items {
@@ -364,13 +370,20 @@ func NewManager(ctx context.Context, p *pgxpool.Pool, log *zap.Logger) (*Manager
 	return m, nil
 }
 
-func (b *Manager) NewBulkInsertOperator(table string, cols []Column) (*BulkInsertOperator, error) {
+// NewBulkInsertOperator creates and registers a bulk insert operator.
+//
+// Parameters:
+//   - table: destination table name used in the generated INSERT statement.
+//   - cols: ordered list of columns to insert into; row values must follow this order.
+//   - endStmts: optional SQL statements appended after each flushed INSERT,
+//     joined with '; ' (for example, "FLUSH").
+func (b *Manager) NewBulkInsertOperator(table string, cols []Column, endStmts ...string) (*BulkInsertOperator, error) {
 
 	bufSize := DefaultBufSize
 
 	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
 
-	op := newBulkInsertOperator(b.ctx, table, cols, b.p, bufSize, b.log)
+	op := newBulkInsertOperator(b.ctx, table, cols, b.p, bufSize, b.log, endStmts...)
 
 	b.mu.Lock()
 	b.ops = append(b.ops, op)
