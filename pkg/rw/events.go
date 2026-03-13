@@ -90,7 +90,7 @@ func filterInsertableColumns(cols []Column) []Column {
 func NewEventHandler(table string, cols []Column, pgbm *pgb.Manager) (*EventHandler, error) {
 	filteredCols := filterInsertableColumns(cols)
 
-	bio, err := pgbm.NewBulkInsertOperator(table, toPGBColumns(filteredCols), "FLUSH")
+	bio, err := pgbm.NewBulkInsertOperator(table, toPGBColumns(filteredCols), pgb.BioOpt{EndStmts: []string{"FLUSH"}})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create bulk insert operator")
 	}

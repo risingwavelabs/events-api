@@ -91,12 +91,18 @@ type Item struct {
 	c    chan error
 }
 
+type BioOpt struct {
+	EndStmts         []string
+	InsertStmtSuffix string
+}
+
 type BulkInsertOperator struct {
-	log      *zap.Logger
-	sql      string
-	table    string
-	cols     []Column
-	endStmts string
+	log              *zap.Logger
+	sql              string
+	table            string
+	cols             []Column
+	endStmts         string
+	insertStmtSuffix string
 
 	itemPool sync.Pool
 
@@ -113,19 +119,41 @@ type BulkInsertOperator struct {
 	inFlight  *atomic.Int32
 }
 
-func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger, endStmts ...string) *BulkInsertOperator {
+func normalizeBioOpt(opts []BioOpt) BioOpt {
+	if len(opts) == 0 {
+		return BioOpt{}
+	}
+
+	opt := opts[0]
+	opt.InsertStmtSuffix = strings.TrimSpace(opt.InsertStmtSuffix)
+
+	cleanedEndStmts := make([]string, 0, len(opt.EndStmts))
+	for _, stmt := range opt.EndStmts {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		cleanedEndStmts = append(cleanedEndStmts, stmt)
+	}
+	opt.EndStmts = cleanedEndStmts
+
+	return opt
+}
+
+func newBulkInsertOperator(ctx context.Context, table string, cols []Column, conn Connection, bufSize int, log *zap.Logger, opt BioOpt) *BulkInsertOperator {
 	ctx, cancel := context.WithCancel(ctx)
 
 	o := &BulkInsertOperator{
-		sql:      _buildPrepareSQL(table, cols),
-		cols:     cols,
-		endStmts: strings.Join(endStmts, "; "),
-		buf:      make([]*Item, 0, bufSize),
-		conn:     conn,
-		c:        make(chan *Item, bufSize),
-		bufSize:  bufSize,
-		maxRows:  MaxParamLimit / len(cols),
-		table:    table,
+		sql:              _buildPrepareSQL(table, cols),
+		cols:             cols,
+		endStmts:         strings.Join(opt.EndStmts, "; "),
+		insertStmtSuffix: opt.InsertStmtSuffix,
+		buf:              make([]*Item, 0, bufSize),
+		conn:             conn,
+		c:                make(chan *Item, bufSize),
+		bufSize:          bufSize,
+		maxRows:          MaxParamLimit / len(cols),
+		table:            table,
 		log: log.Named("bulk_insert").With(
 			zap.String("table", table),
 		),
@@ -256,7 +284,7 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 	if len(o.buf) == 0 {
 		return
 	}
-	sql, args := _buildInsertStatement(o.sql, o.buf, o.cols, o.endStmts)
+	sql, args := _buildInsertStatement(o.sql, o.buf, o.cols, o.insertStmtSuffix, o.endStmts)
 	items := make([]*Item, len(o.buf))
 	copy(items, o.buf)
 	o.buf = o.buf[:0]
@@ -270,7 +298,13 @@ func (o *BulkInsertOperator) flush(ctx context.Context) {
 
 		var err error
 		if _, err = o.conn.Exec(c, sql, args...); err != nil {
-			o.log.Error("failed to run exec in bulk insert operator", zap.Error(err), zap.String("table", o.table), zap.Int("n_args", len(args)))
+			o.log.Error(
+				"failed to run exec in bulk insert operator",
+				zap.Error(err),
+				zap.String("table", o.table),
+				zap.Int("n_args", len(args)),
+				zap.String("insert_stmt_suffix", o.insertStmtSuffix),
+			)
 		}
 		o.onFlushDone(err, items)
 	}()
@@ -296,7 +330,7 @@ func _buildPrepareSQL(table string, cols []Column) string {
 	return "INSERT INTO " + table + " (" + strings.Join(names, ", ") + ") VALUES "
 }
 
-func _buildInsertStatement(sql string, items []*Item, cols []Column, endStmts string) (string, []any) {
+func _buildInsertStatement(sql string, items []*Item, cols []Column, insertStmtSuffix, endStmts string) (string, []any) {
 	n := 0
 	for _, item := range items {
 		n += len(item.rows) * len(cols)
@@ -321,6 +355,11 @@ func _buildInsertStatement(sql string, items []*Item, cols []Column, endStmts st
 				sb.WriteString(", ")
 			}
 		}
+	}
+	insertStmtSuffix = strings.TrimSpace(insertStmtSuffix)
+	if insertStmtSuffix != "" {
+		sb.WriteString(" ")
+		sb.WriteString(insertStmtSuffix)
 	}
 	if endStmts != "" {
 		sb.WriteString(";")
@@ -375,15 +414,23 @@ func NewManager(ctx context.Context, p *pgxpool.Pool, log *zap.Logger) (*Manager
 // Parameters:
 //   - table: destination table name used in the generated INSERT statement.
 //   - cols: ordered list of columns to insert into; row values must follow this order.
-//   - endStmts: optional SQL statements appended after each flushed INSERT,
-//     joined with '; ' (for example, "FLUSH").
-func (b *Manager) NewBulkInsertOperator(table string, cols []Column, endStmts ...string) (*BulkInsertOperator, error) {
+//   - opts: optional operator settings, for example:
+//     BioOpt{EndStmts: []string{"FLUSH"}, InsertStmtSuffix: "ON CONFLICT DO NOTHING"}.
+func (b *Manager) NewBulkInsertOperator(table string, cols []Column, opts ...BioOpt) (*BulkInsertOperator, error) {
+	opt := normalizeBioOpt(opts)
 
 	bufSize := DefaultBufSize
 
-	b.log.Info("creating new bulk insert operator", zap.String("table", table), zap.Any("cols", cols), zap.Int("buf_size", bufSize))
+	b.log.Info(
+		"creating new bulk insert operator",
+		zap.String("table", table),
+		zap.Any("cols", cols),
+		zap.Int("buf_size", bufSize),
+		zap.Strings("end_stmts", opt.EndStmts),
+		zap.String("insert_stmt_suffix", opt.InsertStmtSuffix),
+	)
 
-	op := newBulkInsertOperator(b.ctx, table, cols, b.p, bufSize, b.log, endStmts...)
+	op := newBulkInsertOperator(b.ctx, table, cols, b.p, bufSize, b.log, opt)
 
 	b.mu.Lock()
 	b.ops = append(b.ops, op)
